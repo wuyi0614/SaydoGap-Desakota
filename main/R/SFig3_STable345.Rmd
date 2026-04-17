@@ -1,0 +1,1351 @@
+---
+title: "City Say-Do Gap — Core Analysis -- JY 260201"
+The final combined figure: SFig3_Desakota_Sensitivity.png
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE, warning=FALSE, message=FALSE,
+                      fig.align="center", fig.retina=2, dpi=300)
+```
+
+# 0. Setup
+
+```{r packages}
+required_pkgs <- c("tidyverse","ppcor","mgcv","AER","patchwork","ggrepel","scales")
+for (pkg in required_pkgs) {
+  if (!requireNamespace(pkg, quietly=TRUE)) install.packages(pkg)
+  library(pkg, character.only=TRUE)
+}
+```
+
+```{r load-data}
+df_raw <- read.csv("data/MergedPanelV5.csv", fileEncoding="latin1", stringsAsFactors=FALSE)
+df <- df_raw %>% filter(!city %in% c("Sabah & Sarawak","Davao del Sur","Other"))
+cat("Data:", nrow(df), "cities\n")
+```
+
+```{r palette}
+col_green <- "#4daf4a"; col_orange <- "#ff7f00"; col_blue <- "#377eb8"; col_grey <- "#999999"
+country_colors <- c(Indonesia="#e41a1c", Malaysia="#377eb8", Philippines="#984ea3",
+                    Singapore="#daa520", Thailand="#00bfc4", Vietnam="#333333")
+typology_colors <- c("Green Urban Cores"=col_green, "Grey Urban Cores"=col_grey,
+                     "Desakota Belts"=col_orange)
+```
+
+# 1. Data Preparation
+
+```{r data-prep}
+desa_log_tf <- function(x) { mn <- min(x[x>0], na.rm=TRUE); log(x + mn/2) }
+
+df$Desa_CropOnly_z  <- as.numeric(scale(desa_log_tf(df$Desakota_Index_CropOnly)))
+df$Desa_CropGreen_z <- as.numeric(scale(desa_log_tf(df$Desakota_Index_CropAndGreen)))
+df$Green_Exposure_z  <- as.numeric(scale(df$Green.Exposure.Index))
+df$Blue_Exposure_z   <- as.numeric(scale(df$Blue.Exposure.Index))
+df$NC_z       <- as.numeric(scale(df$genGreenConnectness))
+df$GDP_per_z  <- as.numeric(scale(df$GDP_per))
+df$OnlineExp_z <- as.numeric(scale(df$onlineShoppingExperience))
+df$HighEdu_z  <- as.numeric(scale(df$isHighEdu))
+df$SocMedia_z <- as.numeric(scale(df$socialMediaHrs))
+
+# Raw gaps (NC models)
+df$RG_Grocery_BPN    <- df$stdGreenGroceryLikert_BPN - df$reportMonthlyGreenGrocery_BPN
+df$RG_Electronic_BPN <- df$stdGreenElectronicLikert_BPN - df$reportMonthlyGreenElectronic_BPN
+df$RB_Grocery_BPN    <- df$reportMonthlyGreenGrocery_BPN - df$greenSpendingShareGrocery_BPN
+df$RB_Electronic_BPN <- df$reportMonthlyGreenElectronic_BPN - df$greenSpendingShareElectronic_BPN
+df$RG_Grocery_LPM    <- df$stdGreenGroceryLikert_LPM - df$reportMonthlyGreenGrocery_LPM
+df$RG_Electronic_LPM <- df$stdGreenElectronicLikert_LPM - df$reportMonthlyGreenElectronic_LPM
+df$RB_Grocery_LPM    <- df$reportMonthlyGreenGrocery_LPM - df$greenSpendingShareGrocery_LPM
+df$RB_Electronic_LPM <- df$reportMonthlyGreenElectronic_LPM - df$greenSpendingShareElectronic_LPM
+
+# Z-scored DVs (spatial models) — each computed independently
+df$Obs_Grocery_LPM_z    <- as.numeric(scale(df$greenSpendingShareGrocery_LPM))
+df$Obs_Electronic_LPM_z <- as.numeric(scale(df$greenSpendingShareElectronic_LPM))
+df$Obs_Grocery_BPN_z    <- as.numeric(scale(df$greenSpendingShareGrocery_BPN))
+df$Obs_Electronic_BPN_z <- as.numeric(scale(df$greenSpendingShareElectronic_BPN))
+
+# Z-scored gap components — scale each raw column first, then subtract
+# NOTE: RG = scale(Reported) - scale(Intention)  [positive = over-reporting relative to intention]
+# LPM
+df$RG_Grocery_LPM_z    <- as.numeric(scale(df$reportMonthlyGreenGrocery_LPM)) -
+                            as.numeric(scale(df$stdGreenGroceryLikert_LPM))
+df$RG_Electronic_LPM_z <- as.numeric(scale(df$reportMonthlyGreenElectronic_LPM)) -
+                            as.numeric(scale(df$stdGreenElectronicLikert_LPM))
+df$RB_Grocery_LPM_z    <- as.numeric(scale(df$reportMonthlyGreenGrocery_LPM)) -
+                            as.numeric(scale(df$greenSpendingShareGrocery_LPM))
+df$RB_Electronic_LPM_z <- as.numeric(scale(df$reportMonthlyGreenElectronic_LPM)) -
+                            as.numeric(scale(df$greenSpendingShareElectronic_LPM))
+
+ctrl_str <- "GDP_per_z + OnlineExp_z + HighEdu_z + SocMedia_z"
+
+# Diagnostic: confirm Z-scored gap variables exist and have data
+cat("=== Z-scored DV non-NA counts ===\n")
+for (v in c("Obs_Grocery_LPM_z","RG_Grocery_LPM_z","RB_Grocery_LPM_z",
+            "Obs_Electronic_LPM_z","RG_Electronic_LPM_z","RB_Electronic_LPM_z")) {
+  cat(sprintf("  %s: %d non-NA\n", v, sum(!is.na(df[[v]]))))
+}
+```
+
+
+# 2. NC Models {.tabset}
+
+```{r nc-models}
+nc_configs <- tribble(
+  ~gap_type, ~framework, ~domain, ~dv_col,
+  "RG","BPN","Grocery","RG_Grocery_BPN","RG","BPN","Electronic","RG_Electronic_BPN",
+  "RG","LPM","Grocery","RG_Grocery_LPM","RG","LPM","Electronic","RG_Electronic_LPM",
+  "RB","BPN","Grocery","RB_Grocery_BPN","RB","BPN","Electronic","RB_Electronic_BPN",
+  "RB","LPM","Grocery","RB_Grocery_LPM","RB","LPM","Electronic","RB_Electronic_LPM")
+nc_results <- list()
+for (i in seq_len(nrow(nc_configs))) {
+  fml <- as.formula(paste0(nc_configs$dv_col[i],
+           " ~ genGreenConnectness + GDP_per + onlineShoppingExperience + isHighEdu"))
+  nc_results[[i]] <- list(config=nc_configs[i,], model=lm(fml, data=df))
+}
+```
+
+## Gap 1
+
+```{r nc-gap1, results='asis'}
+for (i in 1:4) { cat("\n###",nc_configs$framework[i],nc_configs$domain[i],"\n\n"); print(summary(nc_results[[i]]$model)); cat("\n---\n") }
+```
+
+## Gap 2
+
+```{r nc-gap2, results='asis'}
+for (i in 5:8) { cat("\n###",nc_configs$framework[i],nc_configs$domain[i],"\n\n"); print(summary(nc_results[[i]]$model)); cat("\n---\n") }
+```
+
+
+# 3. Fig 1a — Slope Graph
+
+> **FIX**: Bold-line averages use per-variable means (not complete-case).
+
+```{r fig1a, fig.width=16, fig.height=5.5, fig.cap="**Fig. 1a**"}
+make_slope <- function(data, fw, dom) {
+  ic <- if(fw=="BPN") paste0("stdGreen",dom,"Likert_BPN") else paste0("stdGreen",dom,"Likert_LPM")
+  rc <- if(fw=="BPN") paste0("reportMonthlyGreen",dom,"_BPN") else paste0("reportMonthlyGreen",dom,"_LPM")
+  oc <- if(fw=="BPN") paste0("greenSpendingShare",dom,"_BPN") else paste0("greenSpendingShare",dom,"_LPM")
+  d <- data[, c("city","Country",ic,rc,oc)]
+  names(d) <- c("city","Country","Intention","Reported","Observed")
+  d[complete.cases(d), ] %>%
+    pivot_longer(c(Intention,Reported,Observed), names_to="stage", values_to="score") %>%
+    mutate(stage=factor(stage, levels=c("Intention","Reported","Observed")),
+           panel=paste0(fw,", ",dom))
+}
+slope_data <- bind_rows(make_slope(df,"BPN","Grocery"), make_slope(df,"BPN","Electronic"),
+                         make_slope(df,"LPM","Grocery"), make_slope(df,"LPM","Electronic")) %>%
+  mutate(panel=factor(panel, levels=c("BPN, Grocery","BPN, Electronic","LPM, Grocery","LPM, Electronic")))
+
+# Per-variable averages (each stage uses all available data for that variable)
+make_avg <- function(data, fw, dom) {
+  ic <- if(fw=="BPN") paste0("stdGreen",dom,"Likert_BPN") else paste0("stdGreen",dom,"Likert_LPM")
+  rc <- if(fw=="BPN") paste0("reportMonthlyGreen",dom,"_BPN") else paste0("reportMonthlyGreen",dom,"_LPM")
+  oc <- if(fw=="BPN") paste0("greenSpendingShare",dom,"_BPN") else paste0("greenSpendingShare",dom,"_LPM")
+  data.frame(
+    panel = paste0(fw,", ",dom),
+    stage = factor(c("Intention","Reported","Observed"), levels=c("Intention","Reported","Observed")),
+    score = c(mean(data[[ic]], na.rm=TRUE), mean(data[[rc]], na.rm=TRUE), mean(data[[oc]], na.rm=TRUE)),
+    stringsAsFactors = FALSE)
+}
+slope_avg <- rbind(make_avg(df,"BPN","Grocery"), make_avg(df,"BPN","Electronic"),
+                    make_avg(df,"LPM","Grocery"), make_avg(df,"LPM","Electronic"))
+slope_avg$panel <- factor(slope_avg$panel, levels=levels(slope_data$panel))
+
+slope_cty <- slope_data %>% group_by(panel,stage,Country) %>% summarise(score=mean(score),.groups="drop")
+
+p_fig1a <- ggplot() +
+  geom_line(data=slope_data, aes(x=stage,y=score,group=city), alpha=.15, linewidth=.3, colour="grey70") +
+  geom_line(data=slope_cty, aes(x=stage,y=score,group=Country,colour=Country), linewidth=.7, alpha=.8) +
+  geom_line(data=slope_avg, aes(x=stage,y=score,group=1), linewidth=1.5, colour="black") +
+  geom_point(data=slope_avg, aes(x=stage,y=score), size=4, shape=21, fill="white", colour="black", stroke=1.2) +
+  geom_text(data=slope_avg, aes(x=stage,y=score,label=sprintf("%.3f",score)), vjust=-1.5, fontface="bold", size=3.5) +
+  facet_wrap(~panel,nrow=1) +
+  scale_colour_manual(values=country_colors) +
+  scale_y_continuous(labels=scales::percent_format(1), limits=c(0,1)) +
+  labs(x=NULL, y="Score", tag="a") +
+  theme_minimal(base_size=12) +
+  theme(legend.position="right", strip.text=element_text(face="bold",size=12), panel.grid.minor=element_blank())
+p_fig1a
+ggsave("Fig1a_slope_graph.png", p_fig1a, width=16, height=5.5, dpi=300)
+```
+
+
+# 4. Fig 2 — NC Correlation Forest Plot
+
+```{r fig2, fig.width=10, fig.height=10, fig.cap="**Fig. 2**"}
+specs1 <- list(
+  list("Psychological","Support Environ.\nProtection Action","genGreenAttitude"),
+  list("Psychological","Humans Are\nHarming Environ.","genGreenHumanLikert"),
+  list("Intention","Grocery","stdGreenGroceryLikert_LPM"),
+  list("Intention","Electronics","stdGreenElectronicLikert_LPM"),
+  list("Intention","Delivery","stdGreenDeliveryLikert_LPM"),
+  list("Intention","Transport","stdGreenWalkLikert_LPM"),
+  list("Reported","Grocery","reportMonthlyGreenGrocery_LPM"),
+  list("Reported","Electronics","reportMonthlyGreenElectronic_LPM"),
+  list("Reported","Delivery","reportMonthlyGreenDelivery_LPM"),
+  list("Reported","Transport","reportMonthlyGreenWalk_LPM"))
+rows1 <- do.call(rbind, lapply(specs1, function(s) {
+  tt <- cor.test(df$genGreenConnectness, df[[s[[3]]]], use="complete.obs")
+  data.frame(category=s[[1]], indicator=s[[2]], r=tt$estimate, p=tt$p.value,
+             ci_lo=tt$conf.int[1], ci_hi=tt$conf.int[2], stringsAsFactors=FALSE)
+}))
+obs_specs <- list(
+  list("Spending Share","greenSpendingShareGrocery_LPM","greenSpendingShareElectronic_LPM"),
+  list("Item Share","greenItemsShareGrocery_LPM","greenItemsShareElectronic_LPM"),
+  list("Per-capita Spend","greenMonthlySpendingGrocery","greenMonthlySpendingElectronic"),
+  list("Order Share","greenOrdersShareGrocery_LPM","greenOrdersShareElectronic_LPM"))
+rows2 <- do.call(rbind, lapply(obs_specs, function(s) {
+  tg <- cor.test(df$genGreenConnectness, df[[s[[2]]]], use="complete.obs")
+  te <- cor.test(df$genGreenConnectness, df[[s[[3]]]], use="complete.obs")
+  rbind(data.frame(category="Observed: Grocery",indicator=s[[1]],r=tg$estimate,p=tg$p.value,
+                   ci_lo=tg$conf.int[1],ci_hi=tg$conf.int[2],stringsAsFactors=FALSE),
+        data.frame(category="Observed: Electronics",indicator=s[[1]],r=te$estimate,p=te$p.value,
+                   ci_lo=te$conf.int[1],ci_hi=te$conf.int[2],stringsAsFactors=FALSE))
+}))
+all_corr <- rbind(rows1, rows2) %>%
+  mutate(sig=case_when(p<.001~"***",p<.01~"**",p<.05~"*",TRUE~"ns"), row_id=rev(row_number()))
+
+p_fig2 <- ggplot(all_corr, aes(x=r,y=reorder(indicator,row_id),colour=category,shape=category)) +
+  geom_vline(xintercept=0,linetype="dashed",colour="grey50") +
+  geom_pointrange(aes(xmin=ci_lo,xmax=ci_hi),size=.6,linewidth=.8,position=position_dodge(.6)) +
+  geom_text(aes(label=paste0("r = ",sprintf("%.2f",r),"  ",sig)),
+            hjust=-.15,size=3,show.legend=FALSE,position=position_dodge(.6)) +
+  scale_colour_manual(values=c(Psychological="#ff7f00",Intention="#00bfc4",Reported="#984ea3",
+    "Observed: Grocery"="#e75480","Observed: Electronics"="#e75480")) +
+  scale_shape_manual(values=c(Psychological=16,Intention=16,Reported=16,
+    "Observed: Grocery"=16,"Observed: Electronics"=17)) +
+  labs(x="Pearson r",y=NULL,colour=NULL,shape=NULL) +
+  theme_minimal(base_size=12)+theme(legend.position="bottom",panel.grid.minor=element_blank())
+p_fig2
+ggsave("Fig2_NC_correlations.png", p_fig2, width=10, height=10, dpi=300)
+```
+
+
+# 5. Mediation Analysis
+
+```{r mediation-helper}
+# --- Core mediation function ---
+# Total / Direct: OLS with common complete cases + within-sample Z-score
+# Indirect (via NC): partial correlation between NC_z and DV
+
+run_spatial_mediation <- function(data, spatial_raw_col, dv_type, domain,
+                                  is_desa = FALSE,
+                                  d_joint = NULL) {
+  int_col  <- paste0("stdGreen", domain, "Likert_LPM")
+  rep_col  <- paste0("reportMonthlyGreen", domain, "_LPM")
+  obs_col  <- paste0("greenSpendingShare", domain, "_LPM")
+  ctrl_cols <- c("GDP_per", "onlineShoppingExperience", "isHighEdu", "socialMediaHrs")
+
+  # --- Total / Direct: per-model complete cases ---
+  needed <- c(int_col, rep_col, obs_col, spatial_raw_col, "genGreenConnectness", ctrl_cols)
+  cc  <- complete.cases(data[, needed])
+  dc  <- data[cc, ]
+  n   <- nrow(dc)
+  if (n < 20) stop(paste("Only", n, "complete cases"))
+
+  if (is_desa) {
+    mn   <- min(dc[[spatial_raw_col]][dc[[spatial_raw_col]] > 0])
+    sp_z <- as.numeric(scale(log(dc[[spatial_raw_col]] + mn / 2)))
+  } else {
+    sp_z <- as.numeric(scale(dc[[spatial_raw_col]]))
+  }
+  nc_z  <- as.numeric(scale(dc$genGreenConnectness))
+  gdp_z <- as.numeric(scale(dc$GDP_per))
+  ose_z <- as.numeric(scale(dc$onlineShoppingExperience))
+  edu_z <- as.numeric(scale(dc$isHighEdu))
+  soc_z <- as.numeric(scale(dc$socialMediaHrs))
+
+  if (dv_type == "Obs") {
+    dv_z <- as.numeric(scale(dc[[obs_col]]))
+  } else if (dv_type == "RG") {
+    # RG = scale(Reported) - scale(Intention)
+    dv_z <- as.numeric(scale(dc[[rep_col]])) - as.numeric(scale(dc[[int_col]]))
+  } else {
+    dv_z <- as.numeric(scale(dc[[rep_col]])) - as.numeric(scale(dc[[obs_col]]))
+  }
+
+  tmp <- data.frame(dv = dv_z, sp = sp_z, nc = nc_z,
+                    gdp = gdp_z, ose = ose_z, edu = edu_z, soc = soc_z)
+
+  m_tot <- lm(dv ~ sp + gdp + ose + edu + soc, data = tmp)
+  m_out <- lm(dv ~ sp + nc + gdp + ose + edu + soc, data = tmp)
+  st <- summary(m_tot); so <- summary(m_out)
+
+  # --- Indirect: partial correlation on joint complete-case sample ---
+  dv_joint_col <- if (dv_type == "Obs") paste0("Obs_", domain, "_LPM_z") else
+                  if (dv_type == "RG")  paste0("RG_",  domain, "_LPM_z") else
+                                         paste0("RB_",  domain, "_LPM_z")
+
+  if (!is.null(d_joint) && dv_joint_col %in% names(d_joint)) {
+    pc_data <- d_joint[, c(dv_joint_col, "NC_z", "GDP_per_z", "OnlineExp_z", "HighEdu_z", "SocMedia_z")]
+    pc  <- ppcor::pcor(pc_data)
+    ind_beta <- pc$estimate["NC_z", dv_joint_col]
+    ind_p    <- pc$p.value["NC_z", dv_joint_col]
+    # Approximate 95% CI via Fisher Z
+    n_joint  <- nrow(d_joint)
+    k        <- 4   # number of control variables
+    se_z     <- 1 / sqrt(n_joint - k - 3)
+    fz       <- atanh(ind_beta)
+    ind_ci_lo <- tanh(fz - 1.96 * se_z)
+    ind_ci_hi <- tanh(fz + 1.96 * se_z)
+  } else {
+    ind_beta <- ind_p <- ind_ci_lo <- ind_ci_hi <- NA_real_
+  }
+
+  data.frame(
+    total_effect   = coef(m_tot)["sp"],
+    direct_effect  = coef(m_out)["sp"],
+    indirect_effect = ind_beta,
+    total_p        = st$coefficients["sp", 4],
+    direct_p       = so$coefficients["sp", 4],
+    indirect_p     = ind_p,
+    total_ci_lo    = confint(m_tot)["sp", 1],
+    total_ci_hi    = confint(m_tot)["sp", 2],
+    direct_ci_lo   = confint(m_out)["sp", 1],
+    direct_ci_hi   = confint(m_out)["sp", 2],
+    indirect_ci_lo = ind_ci_lo,
+    indirect_ci_hi = ind_ci_hi,
+    n = n, r2_total = st$r.squared, r2_direct = so$r.squared,
+    stringsAsFactors = FALSE)
+}
+```
+
+```{r mediation-run}
+needed_joint <- c("RG_Grocery_LPM_z", "RG_Electronic_LPM_z",
+                  "RB_Grocery_LPM_z", "RB_Electronic_LPM_z",
+                  "Obs_Grocery_LPM_z", "Obs_Electronic_LPM_z",
+                  "Green_Exposure_z", "Desa_CropOnly_z",
+                  "NC_z", "GDP_per_z", "OnlineExp_z", "HighEdu_z", "SocMedia_z")
+d_joint <- df[complete.cases(df[, needed_joint]), ]
+cat("Joint complete-case N =", nrow(d_joint), "\n")
+
+# ---- Run all spatial × DV combinations ----
+sp_cfgs <- expand.grid(
+  spatial_raw_col = c("Green.Exposure.Index", "Desakota_Index_CropOnly",
+                       "Desakota_Index_CropAndGreen", "Blue.Exposure.Index"),
+  domain  = c("Grocery", "Electronic"),
+  dv_type = c("RG", "RB", "Obs"),
+  stringsAsFactors = FALSE)
+sp_cfgs$is_desa <- grepl("Desakota", sp_cfgs$spatial_raw_col)
+sp_cfgs$spatial_label <- with(sp_cfgs, case_when(
+  spatial_raw_col == "Green.Exposure.Index"        ~ "Green Exposure",
+  spatial_raw_col == "Desakota_Index_CropOnly"     ~ "Desakota (Crop Only)",
+  spatial_raw_col == "Desakota_Index_CropAndGreen" ~ "Desakota (Crop & Green)",
+  spatial_raw_col == "Blue.Exposure.Index"         ~ "Blue Exposure"))
+
+med_list <- list()
+for (i in seq_len(nrow(sp_cfgs))) {
+  cfg <- sp_cfgs[i, ]
+  cat(sprintf("[%d/%d] %s -> %s %s ... ", i, nrow(sp_cfgs),
+              cfg$spatial_label, cfg$domain, cfg$dv_type))
+  r <- tryCatch(
+    run_spatial_mediation(df, cfg$spatial_raw_col, cfg$dv_type,
+                          cfg$domain, cfg$is_desa, d_joint),
+    error = function(e) { cat("FAIL:", e$message, "\n"); NULL })
+  if (!is.null(r)) {
+    med_list[[length(med_list) + 1]] <- cbind(cfg, r)
+    cat(sprintf("OK N=%d T=%.3f D=%.3f I=%.3f\n",
+                r$n, r$total_effect, r$direct_effect, r$indirect_effect))
+  }
+}
+mediation_results <- do.call(rbind, med_list)
+rownames(mediation_results) <- NULL
+cat(sprintf("\nMediation: %d/%d succeeded\n", nrow(mediation_results), nrow(sp_cfgs)))
+print(table(mediation_results$dv_type, mediation_results$spatial_label))
+```
+
+# 6. OLS + GAM + Tobit
+
+```{r ols-gam-tobit}
+sp_dom <- expand.grid(spatial_var=c("Desa_CropOnly_z","Green_Exposure_z"),
+                       domain=c("Grocery","Electronic"), stringsAsFactors=FALSE)
+sp_dom$dv_var <- ifelse(sp_dom$domain=="Grocery","Obs_Grocery_LPM_z","Obs_Electronic_LPM_z")
+
+ols_fits <- gam_fits <- tobit_fits <- list()
+for (i in seq_len(nrow(sp_dom))) {
+  cfg <- sp_dom[i,]
+  ols_fits[[i]] <- lm(as.formula(paste(cfg$dv_var,"~",cfg$spatial_var,"+",ctrl_str)), data=df)
+  gam_fits[[i]] <- gam(as.formula(paste(cfg$dv_var,"~ s(",cfg$spatial_var,") +",ctrl_str)),
+                        data=df, method="REML")
+  lc <- min(df[[cfg$dv_var]], na.rm=TRUE)
+  tobit_fits[[i]] <- tryCatch(AER::tobit(as.formula(paste(cfg$dv_var,"~",cfg$spatial_var,"+",ctrl_str)),
+               data=df, left=lc), error=function(e) NULL)
+  cat(sprintf("%s -> %s: OLS b=%.3f R2=%.3f | GAM edf=%.1f R2=%.3f\n",
+      cfg$spatial_var, cfg$domain, coef(ols_fits[[i]])[cfg$spatial_var],
+      summary(ols_fits[[i]])$r.squared, summary(gam_fits[[i]])$s.table[1,"edf"],
+      summary(gam_fits[[i]])$r.sq))
+}
+```
+
+```{r tobit-table}
+for (i in seq_len(nrow(sp_dom))) {
+  if (!is.null(tobit_fits[[i]])) {
+    cat(sprintf("\n--- Tobit: %s -> %s ---\n", sp_dom$spatial_var[i], sp_dom$dv_var[i]))
+    print(summary(tobit_fits[[i]])$coefficients)
+  }
+}
+```
+
+
+# 7. Fig 4a — Forest Plot (3 columns: RG, RB, Obs)
+
+```{r fig4a, fig.width=14, fig.height=8, fig.cap="**Fig. 4a**"}
+fig4a_sub <- mediation_results[mediation_results$spatial_label %in%
+               c("Green Exposure", "Desakota (Crop Only)"), ]
+
+cat("Fig4a rows:", nrow(fig4a_sub), "\n")
+cat("dv_type distribution:\n"); print(table(fig4a_sub$dv_type, fig4a_sub$spatial_label))
+
+# If RG/RB are missing from mediation, fall back to simple OLS for those
+present_types <- unique(fig4a_sub$dv_type)
+missing_types <- setdiff(c("RG","RB","Obs"), present_types)
+
+if (length(missing_types) > 0) {
+  cat("\n*** Mediation missing for:", paste(missing_types, collapse=", "), "***\n")
+  cat("*** Adding OLS-based Total/Direct/Indirect for missing types ***\n")
+  
+  for (mt in missing_types) {
+    for (sv in c("Green_Exposure_z","Desa_CropOnly_z")) {
+      for (dom in c("Grocery","Electronic")) {
+        dv <- switch(paste0(mt,"_",dom,"_LPM"),
+                     RG_Grocery_LPM = "RG_Grocery_LPM_z",
+                     RG_Electronic_LPM = "RG_Electronic_LPM_z",
+                     RB_Grocery_LPM = "RB_Grocery_LPM_z",
+                     RB_Electronic_LPM = "RB_Electronic_LPM_z")
+        if (is.null(dv)) next
+        
+        sl <- ifelse(sv=="Green_Exposure_z","Green Exposure","Desakota (Crop Only)")
+        
+        # Total: DV ~ Spatial + Controls
+        m_tot <- tryCatch(lm(as.formula(paste(dv,"~",sv,"+",ctrl_str)), data=df), error=function(e) NULL)
+        # Direct: DV ~ Spatial + NC + Controls
+        m_dir <- tryCatch(lm(as.formula(paste(dv,"~",sv,"+ NC_z +",ctrl_str)), data=df), error=function(e) NULL)
+        # Mediator: NC ~ Spatial + Controls
+        m_med <- tryCatch(lm(as.formula(paste("NC_z ~",sv,"+",ctrl_str)), data=df), error=function(e) NULL)
+        
+        if (!is.null(m_tot) && !is.null(m_dir) && !is.null(m_med)) {
+          total_b <- coef(m_tot)[sv]
+          direct_b <- coef(m_dir)[sv]
+          indirect_b <- coef(m_med)[sv] * coef(m_dir)["NC_z"]
+          st <- summary(m_tot); sd <- summary(m_dir)
+          
+          fallback <- data.frame(
+            spatial_var=sv, domain=dom, dv_type=mt, dv_var=dv, spatial_label=sl,
+            total_effect=total_b, direct_effect=direct_b, indirect_effect=indirect_b,
+            total_p=st$coefficients[sv,4], direct_p=sd$coefficients[sv,4],
+            indirect_p=NA_real_,
+            total_ci_lo=confint(m_tot)[sv,1], total_ci_hi=confint(m_tot)[sv,2],
+            direct_ci_lo=confint(m_dir)[sv,1], direct_ci_hi=confint(m_dir)[sv,2],
+            indirect_ci_lo=NA_real_, indirect_ci_hi=NA_real_,
+            n=nobs(m_tot), r2_total=st$r.squared, r2_direct=sd$r.squared,
+            stringsAsFactors=FALSE)
+          fig4a_sub <- rbind(fig4a_sub, fallback)
+        }
+      }
+    }
+  }
+}
+
+# Build long format
+fig4a_long <- do.call(rbind, lapply(seq_len(nrow(fig4a_sub)), function(i) {
+  r <- fig4a_sub[i,]
+  data.frame(
+    spatial_label=r$spatial_label, domain=r$domain, dv_type=r$dv_type,
+    effect_type=c("Total Effects","Direct Effect\n(Indep. of NC)","Indirect Effect\n(via NC)"),
+    beta=c(r$total_effect, r$direct_effect, r$indirect_effect),
+    ci_lo=c(r$total_ci_lo, r$direct_ci_lo, r$indirect_ci_lo),
+    ci_hi=c(r$total_ci_hi, r$direct_ci_hi, r$indirect_ci_hi),
+    p_val=c(r$total_p, r$direct_p, r$indirect_p),
+    stringsAsFactors=FALSE)
+}))
+
+fig4a_long$sig <- with(fig4a_long,
+  case_when(is.na(p_val)~"", p_val<.001~"***", p_val<.01~"**", p_val<.05~"*", TRUE~"ns"))
+fig4a_long$beta_label <- paste0("\u03b2=",sprintf("%.2f",fig4a_long$beta),fig4a_long$sig)
+
+fig4a_long$effect_type <- factor(fig4a_long$effect_type,
+  levels=c("Total Effects","Direct Effect\n(Indep. of NC)","Indirect Effect\n(via NC)"))
+fig4a_long$dv_label <- factor(case_when(
+  fig4a_long$dv_type=="RG"~"Reported Say-do Gap",
+  fig4a_long$dv_type=="RB"~"Reporting Bias (Green Illusion)",
+  fig4a_long$dv_type=="Obs"~"Observed Market Behavior"),
+  levels=c("Reported Say-do Gap","Reporting Bias (Green Illusion)","Observed Market Behavior"))
+fig4a_long$row_label <- factor(
+  paste0(fig4a_long$spatial_label,", ",fig4a_long$domain),
+  levels=c("Green Exposure, Grocery","Green Exposure, Electronic",
+           "Desakota (Crop Only), Grocery","Desakota (Crop Only), Electronic"))
+
+p_fig4a <- ggplot(fig4a_long, aes(x=beta,y=row_label,colour=spatial_label,shape=domain)) +
+  geom_vline(xintercept=0,linetype="dashed",colour="grey50") +
+  geom_pointrange(aes(xmin=ci_lo,xmax=ci_hi),size=.5,linewidth=.7) +
+  geom_text(aes(label=beta_label),vjust=-1,size=2.8,show.legend=FALSE) +
+  facet_grid(effect_type ~ dv_label, scales="free_x") +
+  scale_colour_manual(values=c("Green Exposure"=col_green,"Desakota (Crop Only)"=col_orange)) +
+  scale_shape_manual(values=c(Grocery=16,Electronic=17)) +
+  labs(x=expression("Regression Coefficient ("*beta*")"),
+       y=NULL,colour="Spatial Index",shape="Domain",tag="a") +
+  theme_minimal(base_size=11) +
+  theme(strip.text.y=element_text(angle=0,face="bold",size=9),
+        strip.text.x=element_text(face="bold"),
+        strip.background.y=element_rect(fill="grey92",colour=NA),
+        legend.position="bottom", panel.spacing.y=unit(.3,"lines"))
+p_fig4a
+ggsave("Fig4a_forest_plot.png", p_fig4a, width=14, height=8, dpi=300)
+```
+
+
+# 8. Fig 4b — GAM Scatter (overlaid)
+
+```{r fig4b, fig.width=14, fig.height=6, fig.cap="**Fig. 4b**"}
+make_overlay <- function(domain_label) {
+  dv <- ifelse(domain_label=="Grocery","Obs_Grocery_LPM_z","Obs_Electronic_LPM_z")
+  idx_d <- which(sp_dom$spatial_var=="Desa_CropOnly_z" & sp_dom$domain==domain_label)
+  idx_g <- which(sp_dom$spatial_var=="Green_Exposure_z" & sp_dom$domain==domain_label)
+  d_all <- df[!is.na(df$Desa_CropOnly_z) & !is.na(df$Green_Exposure_z) & !is.na(df[[dv]]),]
+
+  make_pred <- function(sp,m_ols,m_gam) {
+    rng <- range(d_all[[sp]],na.rm=TRUE)
+    nd <- data.frame(x=seq(rng[1],rng[2],length.out=200),GDP_per_z=0,OnlineExp_z=0,HighEdu_z=0,SocMedia_z=0)
+    names(nd)[1] <- sp
+    gp <- predict(m_gam,newdata=nd,se.fit=TRUE)
+    nd$gam_fit <- gp$fit; nd$gam_lo <- gp$fit-1.96*gp$se.fit; nd$gam_hi <- gp$fit+1.96*gp$se.fit
+    nd$ols_fit <- predict(m_ols,newdata=nd); nd$sp_val <- nd[[sp]]; nd
+  }
+  pred_d <- make_pred("Desa_CropOnly_z",ols_fits[[idx_d]],gam_fits[[idx_d]])
+  pred_g <- make_pred("Green_Exposure_z",ols_fits[[idx_g]],gam_fits[[idx_g]])
+
+  make_lbl <- function(sp_lab,m_ols,m_gam,sp_var) {
+    ob <- coef(m_ols)[sp_var]; or2 <- summary(m_ols)$r.squared
+    op <- summary(m_ols)$coefficients[sp_var,4]
+    osig <- ifelse(op<.001,"***",ifelse(op<.01,"**",ifelse(op<.05,"*","ns")))
+    gs <- summary(m_gam); ge <- gs$s.table[1,"edf"]; gr2 <- gs$r.sq
+    gp2 <- gs$s.table[1,"p-value"]
+    gsig <- ifelse(gp2<.001,"***",ifelse(gp2<.01,"**",ifelse(gp2<.05,"*","ns")))
+    paste0(sp_lab,"\nOLS: \u03b2=",sprintf("%.2f",ob),osig,"  R\u00b2=",sprintf("%.3f",or2),
+           "\nGAM: edf=",sprintf("%.1f",ge),gsig,"  R\u00b2=",sprintf("%.3f",gr2))
+  }
+  lbl_d <- make_lbl("Desakota",ols_fits[[idx_d]],gam_fits[[idx_d]],"Desa_CropOnly_z")
+  lbl_g <- make_lbl("Green Exposure",ols_fits[[idx_g]],gam_fits[[idx_g]],"Green_Exposure_z")
+  yrng <- range(d_all[[dv]],na.rm=TRUE)
+
+  ggplot() +
+    geom_point(data=d_all,aes(x=Desa_CropOnly_z,y=.data[[dv]]),colour=col_orange,alpha=.4,size=1.5)+
+    geom_line(data=pred_d,aes(x=sp_val,y=ols_fit),linetype="dashed",colour=col_orange,linewidth=.7)+
+    geom_ribbon(data=pred_d,aes(x=sp_val,ymin=gam_lo,ymax=gam_hi),fill=col_orange,alpha=.15)+
+    geom_line(data=pred_d,aes(x=sp_val,y=gam_fit),colour=col_orange,linewidth=1.2)+
+    geom_point(data=d_all,aes(x=Green_Exposure_z,y=.data[[dv]]),colour=col_green,alpha=.4,size=1.5,shape=17)+
+    geom_line(data=pred_g,aes(x=sp_val,y=ols_fit),linetype="dashed",colour=col_green,linewidth=.7)+
+    geom_ribbon(data=pred_g,aes(x=sp_val,ymin=gam_lo,ymax=gam_hi),fill=col_green,alpha=.15)+
+    geom_line(data=pred_g,aes(x=sp_val,y=gam_fit),colour=col_green,linewidth=1.2)+
+    annotate("label",x=-2.8,y=yrng[2]-.1,label=lbl_d,hjust=0,vjust=1,size=3,fill="white",colour=col_orange,label.size=.5)+
+    annotate("label",x=-2.8,y=yrng[1]+.8,label=lbl_g,hjust=0,vjust=1,size=3,fill="white",colour=col_green,label.size=.5)+
+    labs(x="Spatial Index (Z-Score)",y="Observed Market Behavior (Z-Score)",title=domain_label)+
+    theme_minimal(base_size=11)+theme(plot.title=element_text(face="bold",hjust=.5))
+}
+p_fig4b <- make_overlay("Grocery") | make_overlay("Electronic")
+p_fig4b
+ggsave("Fig4b_GAM_scatter.png", p_fig4b, width=14, height=6, dpi=300)
+```
+
+
+# 9. Fig 5 — City Classification {.tabset}
+
+```{r city-class}
+df$urban_typology <- NA_character_
+ok <- !is.na(df$Desa_CropOnly_z) & !is.na(df$Green_Exposure_z)
+df$urban_typology[ok & df$Desa_CropOnly_z >= 0] <- "Desakota Belts"
+df$urban_typology[ok & df$Desa_CropOnly_z < 0 & df$Green_Exposure_z >= 0] <- "Green Urban Cores"
+df$urban_typology[ok & df$Desa_CropOnly_z < 0 & df$Green_Exposure_z < 0]  <- "Grey Urban Cores"
+cat("Classification:\n"); print(table(df$urban_typology, useNA="always"))
+```
+
+## a. Scatter
+
+```{r fig5a, fig.width=10, fig.height=8, fig.cap="**Fig. 5a**"}
+df_plot <- df[!is.na(df$urban_typology),]
+df_labels <- df_plot[df_plot$isCapitalCity==1 | df_plot$city %in%
+  c("Jakarta","Singapore","Bangkok_Metropolis","Metro_Manila","Kuala_Lumpur","Hanoi","HCMC"),]
+
+p_fig5a <- ggplot(df_plot, aes(x=Desa_CropOnly_z,y=Green_Exposure_z,colour=Country))+
+  annotate("rect",xmin=-Inf,xmax=0,ymin=0,ymax=Inf,fill=col_green,alpha=.08)+
+  annotate("rect",xmin=-Inf,xmax=0,ymin=-Inf,ymax=0,fill="grey80",alpha=.15)+
+  annotate("rect",xmin=0,xmax=Inf,ymin=-Inf,ymax=Inf,fill=col_orange,alpha=.08)+
+  geom_hline(yintercept=0,linetype="dashed",colour="grey50")+
+  geom_vline(xintercept=0,linetype="dashed",colour="grey50")+
+  geom_point(size=2.5,alpha=.8)+
+  geom_text_repel(data=df_labels, aes(label=city), colour="black", size=3, max.overlaps=20, fontface="italic")+
+  scale_colour_manual(values=country_colors)+
+  annotate("text",x=-3.2,y=2.4,label="Green Urban Cores",colour=col_green,fontface="bold",hjust=0,size=4)+
+  annotate("text",x=-3.2,y=-2.8,label="Grey Urban Cores",colour="grey50",fontface="bold",hjust=0,size=4)+
+  annotate("text",x=0.8,y=-2.8,label="Desakota Belts",colour=col_orange,fontface="bold",hjust=0,size=4)+
+  labs(x="Desakota Index: Crop Only (Z-Score)",y="Green Exposure Index (Z-Score)",
+       title="Morphological Classification",tag="a")+
+  theme_minimal(base_size=12)+theme(legend.position="bottom")
+p_fig5a
+ggsave("Fig5a_scatter.png", p_fig5a, width=10, height=8, dpi=300)
+```
+
+## b. Profiles
+
+```{r fig5b, fig.width=8, fig.height=5, fig.cap="**Fig. 5b**"}
+# Build manually — no pipes
+typs <- c("Green Urban Cores","Grey Urban Cores","Desakota Belts")
+mets <- c("Reported Gap","Reporting Bias","Observed Market Behavior")
+dvs  <- c("RG_Grocery_LPM_z","RB_Grocery_LPM_z","Obs_Grocery_LPM_z")
+prof <- expand.grid(urban_typology=typs, metric=mets, stringsAsFactors=FALSE)
+prof$val <- NA_real_
+for (j in seq_along(typs)) {
+  sub <- df[!is.na(df$urban_typology) & df$urban_typology==typs[j], ]
+  for (k in seq_along(mets)) {
+    prof$val[prof$urban_typology==typs[j] & prof$metric==mets[k]] <- mean(sub[[dvs[k]]], na.rm=TRUE)
+  }
+}
+prof$metric <- factor(prof$metric, levels=mets)
+
+p_fig5b <- ggplot(prof, aes(x=metric, y=val, fill=urban_typology))+
+  geom_col(position=position_dodge(.7), width=.6)+
+  geom_hline(yintercept=0,linetype="dashed",colour="grey50")+
+  scale_fill_manual(values=typology_colors)+
+  labs(x=NULL,y="Average Z-Score",title="Behavioral Profiles by Zone",fill="Urban Typology",tag="b")+
+  theme_minimal(base_size=11)+theme(legend.position="bottom")
+p_fig5b
+ggsave("Fig5b_profiles.png", p_fig5b, width=8, height=5, dpi=300)
+```
+
+## c. City Composition by Country
+
+> **FIX**: label positions computed manually — avoids `position_stack + geom_text` gg_par bug.
+
+```{r fig5c, fig.width=10, fig.height=5, fig.cap="**Fig. 5c**"}
+# Build composition data manually
+comp_raw <- as.data.frame(table(
+  Country = df$Country[!is.na(df$urban_typology)],
+  urban_typology = df$urban_typology[!is.na(df$urban_typology)]),
+  stringsAsFactors = FALSE)
+names(comp_raw)[3] <- "n"
+comp_raw <- comp_raw[comp_raw$n > 0, ]
+
+# Compute proportions and label positions MANUALLY
+comp_list <- list()
+for (cty in unique(comp_raw$Country)) {
+  sub <- comp_raw[comp_raw$Country == cty, ]
+  sub <- sub[order(sub$urban_typology), ]  # consistent order
+  sub$pct <- sub$n / sum(sub$n)
+  sub$cum_pct <- cumsum(sub$pct)
+  sub$label_y <- sub$cum_pct - sub$pct / 2  # center of each bar segment
+  sub$label <- paste0(sub$n, " (", round(sub$pct * 100), "%)")
+  comp_list[[cty]] <- sub
+}
+comp_data <- do.call(rbind, comp_list)
+rownames(comp_data) <- NULL
+
+p_fig5c <- ggplot(comp_data, aes(x = Country, y = pct, fill = urban_typology)) +
+  geom_col(width = .7, colour = "white", linewidth = .3) +
+  geom_text(aes(y = label_y, label = label), size = 2.8) +
+  scale_fill_manual(values = typology_colors) +
+  scale_y_continuous(labels = scales::percent_format(1)) +
+  labs(x = NULL, y = "Proportion", fill = "Urban Typology",
+       title = "City Composition by Country", tag = "c") +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "bottom", axis.text.x = element_text(angle = 30, hjust = 1))
+p_fig5c
+ggsave("Fig5c_composition.png", p_fig5c, width = 10, height = 5, dpi = 300)
+```
+
+
+
+# 10. Save Core Results
+
+```{r save-core}
+save(df, nc_results, mediation_results, ols_fits, gam_fits, tobit_fits,
+     file = "analysis_core_results.RData")
+cat("Saved analysis_core_results.RData\n")
+```
+
+
+# 11. Robustness Helper: Unified Sensitivity Engine
+
+> All sensitivity analyses use the SAME specification as the main analysis
+
+```{r sensitivity-engine}
+# Significance stars helper (also used by Sections 12-14)
+get_stars <- function(p) {
+  ifelse(is.na(p), "", ifelse(p < .001, "***", ifelse(p < .01, "**", ifelse(p < .05, "*", "ns"))))
+}
+
+# DV configurations (6 combos) used by window / weight / CropGreen loops
+dv_configs <- list(
+  list(dv_type = "Obs", domain = "Grocery"),
+  list(dv_type = "Obs", domain = "Electronic"),
+  list(dv_type = "RG",  domain = "Grocery"),
+  list(dv_type = "RG",  domain = "Electronic"),
+  list(dv_type = "RB",  domain = "Grocery"),
+  list(dv_type = "RB",  domain = "Electronic")
+)
+
+run_sensitivity_model <- function(df_main, desa_named_vec, dv_type, domain) {
+  int_col  <- paste0("stdGreen", domain, "Likert_LPM")
+  rep_col  <- paste0("reportMonthlyGreen", domain, "_LPM")
+  obs_col  <- paste0("greenSpendingShare", domain, "_LPM")
+  ctrl_cols <- c("GDP_per", "onlineShoppingExperience", "isHighEdu", "socialMediaHrs")
+
+  d <- df_main
+  d$desa_raw <- desa_named_vec[match(d$city, names(desa_named_vec))]
+
+  # Common complete cases (same logic as main analysis)
+  needed <- c(int_col, rep_col, obs_col, "desa_raw", "genGreenConnectness", ctrl_cols)
+  cc <- complete.cases(d[, needed])
+  dc <- d[cc, ]
+  n  <- nrow(dc)
+  if (n < 20) stop(paste("Only", n, "complete cases"))
+
+  # Z-score WITHIN this complete sample
+  mn_desa <- min(dc$desa_raw[dc$desa_raw > 0], na.rm = TRUE)
+  sp_z  <- as.numeric(scale(log(dc$desa_raw + mn_desa / 2)))
+  nc_z  <- as.numeric(scale(dc$genGreenConnectness))
+  gdp_z <- as.numeric(scale(dc$GDP_per))
+  ose_z <- as.numeric(scale(dc$onlineShoppingExperience))
+  edu_z <- as.numeric(scale(dc$isHighEdu))
+  soc_z <- as.numeric(scale(dc$socialMediaHrs))
+
+  # DV: RG = scale(Reported) - scale(Intention) [positive = over-reporting]
+  if (dv_type == "Obs") {
+    dv_z <- as.numeric(scale(dc[[obs_col]]))
+  } else if (dv_type == "RG") {
+    dv_z <- as.numeric(scale(dc[[rep_col]])) - as.numeric(scale(dc[[int_col]]))
+  } else {
+    # RB = scale(Reported) - scale(Observed)
+    dv_z <- as.numeric(scale(dc[[rep_col]])) - as.numeric(scale(dc[[obs_col]]))
+  }
+
+  tmp <- data.frame(dv = dv_z, sp = sp_z, nc = nc_z,
+                    gdp = gdp_z, ose = ose_z, edu = edu_z, soc = soc_z)
+
+  # Total: DV ~ Spatial + Controls
+  m_tot <- lm(dv ~ sp + gdp + ose + edu + soc, data = tmp)
+  st    <- summary(m_tot)
+
+  # Direct: DV ~ Spatial + NC + Controls
+  m_out <- lm(dv ~ sp + nc + gdp + ose + edu + soc, data = tmp)
+  so    <- summary(m_out)
+
+  # Indirect (via NC): partial correlation between nc and dv,
+  # controlling for gdp + ose + edu + soc — consistent with main Fig 4a method
+  pc_data  <- tmp[, c("dv", "nc", "gdp", "ose", "edu", "soc")]
+  pc       <- ppcor::pcor(pc_data)
+  ind_beta <- pc$estimate["nc", "dv"]
+  ind_p    <- pc$p.value["nc", "dv"]
+  # 95% CI via Fisher Z transformation (k = 4 controls)
+  k        <- 4
+  se_z     <- 1 / sqrt(n - k - 3)
+  fz       <- atanh(ind_beta)
+  ind_ci_lo <- tanh(fz - 1.96 * se_z)
+  ind_ci_hi <- tanh(fz + 1.96 * se_z)
+
+  # GAM
+  m_gam   <- tryCatch(gam(dv ~ s(sp) + gdp + ose + edu + soc, data = tmp, method = "REML"),
+                       error = function(e) NULL)
+  gam_edf <- if (!is.null(m_gam)) summary(m_gam)$s.table[1, "edf"] else NA
+  gam_r2  <- if (!is.null(m_gam)) summary(m_gam)$r.sq else NA
+
+  data.frame(
+    tot_beta  = st$coefficients["sp", "Estimate"],
+    tot_ci_lo = confint(m_tot)["sp", 1],
+    tot_ci_hi = confint(m_tot)["sp", 2],
+    tot_p     = st$coefficients["sp", "Pr(>|t|)"],
+    dir_beta  = so$coefficients["sp", "Estimate"],
+    dir_ci_lo = confint(m_out)["sp", 1],
+    dir_ci_hi = confint(m_out)["sp", 2],
+    dir_p     = so$coefficients["sp", "Pr(>|t|)"],
+    ind_beta  = ind_beta,
+    ind_ci_lo = ind_ci_lo,
+    ind_ci_hi = ind_ci_hi,
+    ind_p     = ind_p,
+    gam_edf   = gam_edf,
+    gam_r2    = gam_r2,
+    ols_r2    = st$r.squared,
+    n         = n,
+    stringsAsFactors = FALSE)
+}
+```
+
+
+# 12. Robustness: Window Size Sensitivity {.tabset}
+
+> Desakota index recomputed at 8 moving-window sizes (7×7 to 21×21). Baseline = 9×9.
+
+```{r window-run}
+desa_win_raw <- read.csv("data/supplementary/STable3_Desakota_window_sensitivity.csv",
+                          stringsAsFactors = FALSE, fileEncoding = "UTF-8")
+desa_win_raw$city <- gsub(" ", "_", desa_win_raw$city)
+
+windows <- sort(unique(desa_win_raw$window))
+baseline_window <- 9
+
+cat("Window sensitivity:", length(unique(desa_win_raw$city)), "cities,",
+    length(windows), "windows:", paste(windows, collapse = ", "), "\n")
+
+# Verify city matching
+n_matched <- sum(unique(desa_win_raw$city) %in% df$city)
+cat("City match rate:", n_matched, "/", length(unique(desa_win_raw$city)), "\n")
+
+win_results <- list()
+for (w in windows) {
+  desa_sub <- desa_win_raw[desa_win_raw$window == w, ]
+  desa_vec <- setNames(desa_sub$Desakota_index, desa_sub$city)
+  
+  for (dv_cfg in dv_configs) {
+    cat(sprintf("  Win %d × %s %s ... ", w, dv_cfg$dv_type, dv_cfg$domain))
+    r <- tryCatch(
+      run_sensitivity_model(df, desa_vec, dv_cfg$dv_type, dv_cfg$domain),
+      error = function(e) { cat("FAIL:", e$message, "\n"); NULL }
+    )
+    if (!is.null(r)) {
+      win_results[[length(win_results) + 1]] <- cbind(
+        data.frame(window = w, dv_type = dv_cfg$dv_type, domain = dv_cfg$domain,
+                   stringsAsFactors = FALSE), r)
+      cat(sprintf("N=%d T=%.3f D=%.3f I=%.3f\n", r$n, r$tot_beta, r$dir_beta, r$ind_beta))
+    }
+  }
+}
+win_sens <- do.call(rbind, win_results)
+rownames(win_sens) <- NULL
+
+win_sens$tot_sig <- get_stars(win_sens$tot_p)
+win_sens$dir_sig <- get_stars(win_sens$dir_p)
+win_sens$ind_sig <- get_stars(win_sens$ind_p)
+win_sens$is_baseline <- (win_sens$window == baseline_window)
+
+cat(sprintf("\nWindow sensitivity: %d models completed\n", nrow(win_sens)))
+```
+
+## Window Results Table
+
+```{r window-table}
+knitr::kable(
+  win_sens[, c("window", "dv_type", "domain", "tot_beta", "tot_sig",
+               "dir_beta", "dir_sig", "ind_beta", "ind_sig", "gam_edf", "n")],
+  digits = 3, caption = "Window Size Sensitivity (7×7 to 21×21)")
+```
+
+## Fig S-Window: Coefficient Trajectory
+
+```{r fig-window, fig.width=14, fig.height=8, fig.cap="**Supplementary Fig.** | Window size robustness."}
+# Reshape to long
+win_long <- do.call(rbind, lapply(seq_len(nrow(win_sens)), function(i) {
+  r <- win_sens[i, ]
+  data.frame(
+    window = rep(r$window, 3), dv_type = rep(r$dv_type, 3), domain = rep(r$domain, 3),
+    effect = c("Total", "Direct", "Indirect"),
+    beta   = c(r$tot_beta, r$dir_beta, r$ind_beta),
+    ci_lo  = c(r$tot_ci_lo, r$dir_ci_lo, r$ind_ci_lo),
+    ci_hi  = c(r$tot_ci_hi, r$dir_ci_hi, r$ind_ci_hi),
+    sig    = c(r$tot_sig, r$dir_sig, r$ind_sig),
+    stringsAsFactors = FALSE)
+}))
+
+win_long$effect <- factor(win_long$effect, levels = c("Total", "Direct", "Indirect"))
+win_long$dv_label <- factor(
+  ifelse(win_long$dv_type == "RG", "Reported Say-do Gap",
+  ifelse(win_long$dv_type == "RB", "Reporting Bias", "Observed Market Behavior")),
+  levels = c("Reported Say-do Gap", "Reporting Bias", "Observed Market Behavior"))
+
+p_win <- ggplot(win_long, aes(x = window, y = beta, colour = effect, shape = effect)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50") +
+  geom_vline(xintercept = baseline_window, linetype = "dotted", colour = "red", linewidth = .5) +
+  geom_ribbon(aes(ymin = ci_lo, ymax = ci_hi, fill = effect), alpha = .12, colour = NA) +
+  geom_line(linewidth = .8) +
+  geom_point(size = 2) +
+  facet_grid(domain ~ dv_label, scales = "free_y") +
+  scale_colour_manual(values = c(Total = "grey30", Direct = col_orange, Indirect = col_green)) +
+  scale_fill_manual(values = c(Total = "grey30", Direct = col_orange, Indirect = col_green)) +
+  scale_shape_manual(values = c(Total = 16, Direct = 17, Indirect = 15)) +
+  scale_x_continuous(breaks = windows,
+                     labels = paste0(windows, "\u00d7", windows)) +
+  labs(x = "Moving Window Size", y = expression("Standardised " * beta),
+       colour = "Effect", shape = "Effect", fill = "Effect",
+       title = "Desakota Index Robustness: Moving Window Size") +
+  theme_minimal(base_size = 11) +
+  theme(strip.text = element_text(face = "bold"),
+        legend.position = "bottom",
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+p_win
+ggsave("FigS_window_sensitivity.png", p_win, width = 14, height = 8, dpi = 300)
+```
+
+
+# 13. Robustness: Weight Sensitivity {.tabset}
+
+> Desakota index recomputed with 3 DesaMix:DesaFrag weight combinations:
+> 0.3:0.7, 0.5:0.5 (baseline), 0.7:0.3.
+
+```{r weight-run}
+desa_wt_raw <- read.csv("data/supplementary/STable4_Desakota_weight_sensitivity.csv",
+                          stringsAsFactors = FALSE, fileEncoding = "UTF-8")
+desa_wt_raw$city <- gsub(" ", "_", desa_wt_raw$city)
+
+weight_cases <- sort(unique(desa_wt_raw$weight_case))
+baseline_weight <- "0.5_0.5"
+
+cat("Weight sensitivity:", length(unique(desa_wt_raw$city)), "cities,",
+    length(weight_cases), "weights:", paste(weight_cases, collapse = ", "), "\n")
+
+n_matched_w <- sum(unique(desa_wt_raw$city) %in% df$city)
+cat("City match rate:", n_matched_w, "/", length(unique(desa_wt_raw$city)), "\n")
+
+wt_results <- list()
+for (wc in weight_cases) {
+  desa_sub <- desa_wt_raw[desa_wt_raw$weight_case == wc, ]
+  desa_vec <- setNames(desa_sub$Desakota_index, desa_sub$city)
+  
+  for (dv_cfg in dv_configs) {
+    cat(sprintf("  Wt %s × %s %s ... ", wc, dv_cfg$dv_type, dv_cfg$domain))
+    r <- tryCatch(
+      run_sensitivity_model(df, desa_vec, dv_cfg$dv_type, dv_cfg$domain),
+      error = function(e) { cat("FAIL:", e$message, "\n"); NULL }
+    )
+    if (!is.null(r)) {
+      wt_results[[length(wt_results) + 1]] <- cbind(
+        data.frame(weight_case = wc, dv_type = dv_cfg$dv_type, domain = dv_cfg$domain,
+                   stringsAsFactors = FALSE), r)
+      cat(sprintf("N=%d T=%.3f D=%.3f I=%.3f\n", r$n, r$tot_beta, r$dir_beta, r$ind_beta))
+    }
+  }
+}
+wt_sens <- do.call(rbind, wt_results)
+rownames(wt_sens) <- NULL
+
+wt_sens$tot_sig <- get_stars(wt_sens$tot_p)
+wt_sens$dir_sig <- get_stars(wt_sens$dir_p)
+wt_sens$ind_sig <- get_stars(wt_sens$ind_p)
+wt_sens$is_baseline <- (wt_sens$weight_case == baseline_weight)
+
+# Pretty labels
+wt_sens$weight_label <- ifelse(wt_sens$weight_case == "0.3_0.7", "Mix 0.3 : Frag 0.7",
+                        ifelse(wt_sens$weight_case == "0.5_0.5", "Mix 0.5 : Frag 0.5 (baseline)",
+                               "Mix 0.7 : Frag 0.3"))
+
+cat(sprintf("\nWeight sensitivity: %d models completed\n", nrow(wt_sens)))
+```
+
+## Weight Results Table
+
+```{r weight-table}
+knitr::kable(
+  wt_sens[, c("weight_case", "dv_type", "domain", "tot_beta", "tot_sig",
+              "dir_beta", "dir_sig", "ind_beta", "ind_sig", "gam_edf", "n")],
+  digits = 3, caption = "Weight Sensitivity (Mix:Frag = 0.3:0.7, 0.5:0.5, 0.7:0.3)")
+```
+
+## Fig S-Weight: Forest Plot Comparison
+
+```{r fig-weight, fig.width=14, fig.height=7, fig.cap="**Supplementary Fig.** | Weight robustness."}
+wt_long <- do.call(rbind, lapply(seq_len(nrow(wt_sens)), function(i) {
+  r <- wt_sens[i, ]
+  data.frame(
+    weight_label = rep(r$weight_label, 3), dv_type = rep(r$dv_type, 3), domain = rep(r$domain, 3),
+    effect = c("Total", "Direct", "Indirect"),
+    beta   = c(r$tot_beta, r$dir_beta, r$ind_beta),
+    ci_lo  = c(r$tot_ci_lo, r$dir_ci_lo, r$ind_ci_lo),
+    ci_hi  = c(r$tot_ci_hi, r$dir_ci_hi, r$ind_ci_hi),
+    sig    = c(r$tot_sig, r$dir_sig, r$ind_sig),
+    stringsAsFactors = FALSE)
+}))
+
+wt_long$effect <- factor(wt_long$effect, levels = c("Total", "Direct", "Indirect"))
+wt_long$dv_label <- factor(
+  ifelse(wt_long$dv_type == "RG", "Reported Say-do Gap",
+  ifelse(wt_long$dv_type == "RB", "Reporting Bias", "Observed Market Behavior")),
+  levels = c("Reported Say-do Gap", "Reporting Bias", "Observed Market Behavior"))
+wt_long$weight_label <- factor(wt_long$weight_label, levels = c(
+  "Mix 0.3 : Frag 0.7", "Mix 0.5 : Frag 0.5 (baseline)", "Mix 0.7 : Frag 0.3"))
+wt_long$beta_label <- paste0(sprintf("%.3f", wt_long$beta), " ", wt_long$sig)
+
+p_wt <- ggplot(wt_long, aes(x = beta, y = weight_label, colour = effect, shape = effect)) +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "grey50") +
+  geom_pointrange(aes(xmin = ci_lo, xmax = ci_hi),
+                  size = .4, linewidth = .6,
+                  position = position_dodge(width = .5)) +
+  geom_text(aes(label = beta_label), vjust = -0.8, size = 2.5,
+            show.legend = FALSE, position = position_dodge(width = .5)) +
+  facet_grid(domain ~ dv_label, scales = "free_x") +
+  scale_colour_manual(values = c(Total = "grey30", Direct = col_orange, Indirect = col_green)) +
+  scale_shape_manual(values = c(Total = 16, Direct = 17, Indirect = 15)) +
+  labs(x = expression("Standardised " * beta),
+       y = NULL, colour = "Effect", shape = "Effect",
+       title = "Desakota Index Robustness: Component Weighting") +
+  theme_minimal(base_size = 11) +
+  theme(strip.text = element_text(face = "bold"), legend.position = "bottom")
+
+p_wt
+ggsave("FigS_weight_sensitivity.png", p_wt, width = 14, height = 7, dpi = 300)
+```
+
+
+# 14. Robustness: CropAndGreen Variant {.tabset}
+
+> Main analysis uses Desakota_Index_CropOnly. Here we replicate using
+> Desakota_Index_CropAndGreen as a definitional robustness check.
+
+```{r cropgreen-run}
+desa_cag_vec <- setNames(df$Desakota_Index_CropAndGreen, df$city)
+
+cag_results <- list()
+for (dv_cfg in dv_configs) {
+  cat(sprintf("  CropAndGreen × %s %s ... ", dv_cfg$dv_type, dv_cfg$domain))
+  r <- tryCatch(
+    run_sensitivity_model(df, desa_cag_vec, dv_cfg$dv_type, dv_cfg$domain),
+    error = function(e) { cat("FAIL:", e$message, "\n"); NULL }
+  )
+  if (!is.null(r)) {
+    cag_results[[length(cag_results) + 1]] <- cbind(
+      data.frame(variant = "CropAndGreen", dv_type = dv_cfg$dv_type,
+                 domain = dv_cfg$domain, stringsAsFactors = FALSE), r)
+    cat(sprintf("N=%d T=%.3f D=%.3f I=%.3f\n", r$n, r$tot_beta, r$dir_beta, r$ind_beta))
+  }
+}
+
+desa_co_vec <- setNames(df$Desakota_Index_CropOnly, df$city)
+for (dv_cfg in dv_configs) {
+  r <- tryCatch(
+    run_sensitivity_model(df, desa_co_vec, dv_cfg$dv_type, dv_cfg$domain),
+    error = function(e) NULL)
+  if (!is.null(r)) {
+    cag_results[[length(cag_results) + 1]] <- cbind(
+      data.frame(variant = "CropOnly (baseline)", dv_type = dv_cfg$dv_type,
+                 domain = dv_cfg$domain, stringsAsFactors = FALSE), r)
+  }
+}
+
+cag_sens <- do.call(rbind, cag_results)
+rownames(cag_sens) <- NULL
+cag_sens$tot_sig <- get_stars(cag_sens$tot_p)
+cag_sens$dir_sig <- get_stars(cag_sens$dir_p)
+cag_sens$ind_sig <- get_stars(cag_sens$ind_p)
+```
+
+## CropAndGreen Results Table
+
+```{r cropgreen-table}
+knitr::kable(
+  cag_sens[, c("variant", "dv_type", "domain", "tot_beta", "tot_sig",
+               "dir_beta", "dir_sig", "ind_beta", "ind_sig", "n")],
+  digits = 3, caption = "Desakota Definition Sensitivity: CropOnly vs CropAndGreen")
+```
+
+## Fig S-CropGreen: Forest Plot
+
+```{r fig-cropgreen, fig.width=14, fig.height=6, fig.cap="**Supplementary Fig.** | Desakota definition robustness."}
+cag_long <- do.call(rbind, lapply(seq_len(nrow(cag_sens)), function(i) {
+  r <- cag_sens[i, ]
+  data.frame(
+    variant = rep(r$variant, 3), dv_type = rep(r$dv_type, 3), domain = rep(r$domain, 3),
+    effect = c("Total", "Direct", "Indirect"),
+    beta   = c(r$tot_beta, r$dir_beta, r$ind_beta),
+    ci_lo  = c(r$tot_ci_lo, r$dir_ci_lo, r$ind_ci_lo),
+    ci_hi  = c(r$tot_ci_hi, r$dir_ci_hi, r$ind_ci_hi),
+    sig    = c(r$tot_sig, r$dir_sig, r$ind_sig),
+    stringsAsFactors = FALSE)
+}))
+cag_long$effect <- factor(cag_long$effect, levels = c("Total", "Direct", "Indirect"))
+cag_long$dv_label <- factor(
+  ifelse(cag_long$dv_type == "RG", "Reported Say-do Gap",
+  ifelse(cag_long$dv_type == "RB", "Reporting Bias", "Observed Market Behavior")),
+  levels = c("Reported Say-do Gap", "Reporting Bias", "Observed Market Behavior"))
+cag_long$beta_label <- paste0(sprintf("%.3f", cag_long$beta), " ", cag_long$sig)
+
+p_cag <- ggplot(cag_long, aes(x = beta, y = variant, colour = effect, shape = effect)) +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "grey50") +
+  geom_pointrange(aes(xmin = ci_lo, xmax = ci_hi),
+                  size = .4, linewidth = .6,
+                  position = position_dodge(width = .5)) +
+  geom_text(aes(label = beta_label), vjust = -0.8, size = 2.5,
+            show.legend = FALSE, position = position_dodge(width = .5)) +
+  facet_grid(domain ~ dv_label, scales = "free_x") +
+  scale_colour_manual(values = c(Total = "grey30", Direct = col_orange, Indirect = col_green)) +
+  scale_shape_manual(values = c(Total = 16, Direct = 17, Indirect = 15)) +
+  labs(x = expression("Standardised " * beta),
+       y = NULL, colour = "Effect", shape = "Effect",
+       title = "Desakota Index Robustness: Crop Definition") +
+  theme_minimal(base_size = 11) +
+  theme(strip.text = element_text(face = "bold"), legend.position = "bottom")
+
+p_cag
+ggsave("FigS_cropgreen_sensitivity.png", p_cag, width = 14, height = 6, dpi = 300)
+```
+
+
+# 15. Save All Results
+
+```{r save-all}
+save(df, nc_results, mediation_results, ols_fits, gam_fits, tobit_fits,
+     win_sens, wt_sens, cag_sens,
+     file = "analysis_all_results.RData")
+
+cat("\n=== All output files ===\n")
+cat(paste(list.files(pattern = "\\.(png|RData)$"), collapse = "\n"), "\n")
+```
+
+
+```{r fig-robustness-grocery, fig.width=14, fig.height=12, fig.cap="**Supplementary Fig. S** | Robustness of Desakota Index (Grocery domain)."}
+
+# --- Combine all three sensitivity tables into one long-format data frame ---
+
+# 1. Window
+win_part <- do.call(rbind, lapply(seq_len(nrow(win_sens)), function(i) {
+  r <- win_sens[i, ]
+  data.frame(
+    dimension = "Window Size",
+    param_value = paste0(r$window, "\u00d7", r$window),
+    is_baseline = (r$window == 9),
+    dv_type = r$dv_type, domain = r$domain,
+    effect = c("Total", "Direct", "Indirect"),
+    beta   = c(r$tot_beta, r$dir_beta, r$ind_beta),
+    ci_lo  = c(r$tot_ci_lo, r$dir_ci_lo, r$ind_ci_lo),
+    ci_hi  = c(r$tot_ci_hi, r$dir_ci_hi, r$ind_ci_hi),
+    sig    = c(r$tot_sig, r$dir_sig, r$ind_sig),
+    stringsAsFactors = FALSE)
+}))
+
+# 2. Weight
+wt_part <- do.call(rbind, lapply(seq_len(nrow(wt_sens)), function(i) {
+  r <- wt_sens[i, ]
+  label <- switch(r$weight_case,
+    "0.3_0.7" = "Mix 0.3 : Frag 0.7",
+    "0.5_0.5" = "Mix 0.5 : Frag 0.5",
+    "0.7_0.3" = "Mix 0.7 : Frag 0.3")
+  data.frame(
+    dimension = "Component Weight",
+    param_value = label,
+    is_baseline = (r$weight_case == "0.5_0.5"),
+    dv_type = r$dv_type, domain = r$domain,
+    effect = c("Total", "Direct", "Indirect"),
+    beta   = c(r$tot_beta, r$dir_beta, r$ind_beta),
+    ci_lo  = c(r$tot_ci_lo, r$dir_ci_lo, r$ind_ci_lo),
+    ci_hi  = c(r$tot_ci_hi, r$dir_ci_hi, r$ind_ci_hi),
+    sig    = c(r$tot_sig, r$dir_sig, r$ind_sig),
+    stringsAsFactors = FALSE)
+}))
+
+# 3. Crop definition
+cag_part <- do.call(rbind, lapply(seq_len(nrow(cag_sens)), function(i) {
+  r <- cag_sens[i, ]
+  data.frame(
+    dimension = "Crop Definition",
+    param_value = r$variant,
+    is_baseline = grepl("baseline", r$variant),
+    dv_type = r$dv_type, domain = r$domain,
+    effect = c("Total", "Direct", "Indirect"),
+    beta   = c(r$tot_beta, r$dir_beta, r$ind_beta),
+    ci_lo  = c(r$tot_ci_lo, r$dir_ci_lo, r$ind_ci_lo),
+    ci_hi  = c(r$tot_ci_hi, r$dir_ci_hi, r$ind_ci_hi),
+    sig    = c(r$tot_sig, r$dir_sig, r$ind_sig),
+    stringsAsFactors = FALSE)
+}))
+
+# Combine
+all_robust <- rbind(win_part, wt_part, cag_part)
+
+# Factor ordering
+all_robust$effect <- factor(all_robust$effect, levels = c("Total", "Direct", "Indirect"))
+
+all_robust$dv_label <- factor(
+  ifelse(all_robust$dv_type == "RG", "Reported Say-do Gap",
+  ifelse(all_robust$dv_type == "RB", "Reporting Bias (Green Illusion)",
+         "Observed Market Behavior")),
+  levels = c("Reported Say-do Gap", "Reporting Bias (Green Illusion)", "Observed Market Behavior"))
+
+all_robust$dimension <- factor(all_robust$dimension,
+  levels = c("Window Size", "Component Weight", "Crop Definition"))
+
+# Param ordering within each dimension
+win_order  <- paste0(seq(7, 21, 2), "\u00d7", seq(7, 21, 2))
+wt_order   <- c("Mix 0.3 : Frag 0.7", "Mix 0.5 : Frag 0.5", "Mix 0.7 : Frag 0.3")
+cag_order  <- c("CropAndGreen", "CropOnly (baseline)")
+all_robust$param_value <- factor(all_robust$param_value,
+  levels = c(win_order, wt_order, cag_order))
+
+all_robust$beta_label <- paste0(sprintf("%.3f", all_robust$beta), " ", all_robust$sig)
+
+# --- Plot: Grocery only ---
+d_gro <- all_robust[all_robust$domain == "Grocery", ]
+
+# Bold face for baseline rows
+d_gro$face <- ifelse(d_gro$is_baseline, "bold", "plain")
+
+p_robust_gro <- ggplot(d_gro, aes(x = beta, y = param_value, colour = effect, shape = effect)) +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "grey50") +
+  geom_pointrange(aes(xmin = ci_lo, xmax = ci_hi),
+                  size = .35, linewidth = .5,
+                  position = position_dodge(width = .6)) +
+  geom_text(aes(label = beta_label), vjust = -0.7, size = 2.2,
+            show.legend = FALSE, position = position_dodge(width = .6)) +
+  facet_grid(dimension ~ dv_label, scales = "free", space = "free_y") +
+  scale_colour_manual(values = c(Total = "grey30", Direct = col_orange, Indirect = col_green)) +
+  scale_shape_manual(values = c(Total = 16, Direct = 17, Indirect = 15)) +
+  labs(x = expression("Standardised " * beta),
+       y = NULL, colour = "Effect", shape = "Effect",
+       title = "Desakota Index Robustness — Grocery Domain") +
+  theme_minimal(base_size = 11) +
+  theme(strip.text = element_text(face = "bold"),
+        strip.text.y = element_text(angle = 0),
+        strip.background.y = element_rect(fill = "grey92", colour = NA),
+        legend.position = "bottom",
+        panel.spacing.y = unit(.3, "lines"),
+        axis.text.y = element_text(size = 8))
+
+p_robust_gro
+ggsave("FigS_robustness_grocery.png", p_robust_gro, width = 14, height = 12, dpi = 300)
+```
+
+```{r fig-robustness-combined, fig.width=16, fig.height=22, fig.cap="**Supplementary Fig. S** | Multiverse robustness of the Desakota Index."}
+
+build_long <- function(sens_df, dim_label, param_col, baseline_val) {
+  do.call(rbind, lapply(seq_len(nrow(sens_df)), function(i) {
+    r <- sens_df[i, ]
+    pv <- as.character(r[[param_col]])
+    data.frame(
+      dimension = dim_label, param = pv,
+      is_baseline = (pv == as.character(baseline_val)),
+      dv_type = r$dv_type, domain = r$domain,
+      effect  = c("Total", "Direct", "Indirect"),
+      beta    = c(r$tot_beta, r$dir_beta, r$ind_beta),
+      sig     = c(r$tot_sig, r$dir_sig, r$ind_sig),
+      stringsAsFactors = FALSE)
+  }))
+}
+
+# Window: create label
+win_sens$win_label <- paste0(win_sens$window, "\u00d7", win_sens$window)
+long_win <- build_long(win_sens, "Window Size", "win_label",
+                        paste0(9, "\u00d7", 9))
+
+# Weight
+wt_sens$wt_label <- ifelse(wt_sens$weight_case == "0.3_0.7", "Mix0.3:Frag0.7",
+                    ifelse(wt_sens$weight_case == "0.5_0.5", "Mix0.5:Frag0.5",
+                           "Mix0.7:Frag0.3"))
+long_wt <- build_long(wt_sens, "Component Weight", "wt_label", "Mix0.5:Frag0.5")
+
+# Crop definition
+cag_sens$cag_label <- ifelse(grepl("baseline", cag_sens$variant), "CropOnly", "Crop+Green")
+long_cag <- build_long(cag_sens, "Crop Definition", "cag_label", "CropOnly")
+
+all_long <- rbind(long_win, long_wt, long_cag)
+all_long$effect <- factor(all_long$effect, levels = c("Total", "Direct", "Indirect"))
+all_long$dv_label <- factor(
+  ifelse(all_long$dv_type == "Obs", "Observed Market Behavior",
+  ifelse(all_long$dv_type == "RB", "Reporting Bias", "Reported Say-do Gap")),
+  levels = c("Reported Say-do Gap", "Reporting Bias", "Observed Market Behavior"))
+
+# ===================================================================
+# PANEL A: p-value proxy histogram — all 3 effects, faceted
+# ===================================================================
+
+sig_to_p <- function(s) {
+  ifelse(s == "***", 0.0005, ifelse(s == "**", 0.005,
+  ifelse(s == "*", 0.03, 0.3)))
+}
+all_long$p_approx <- sig_to_p(all_long$sig)
+
+p_A <- ggplot(all_long, aes(x = p_approx, fill = dv_label)) +
+  geom_histogram(breaks = c(0, 0.001, 0.01, 0.05, 0.1, 0.5, 1),
+                 colour = "white", linewidth = 0.3) +
+  geom_vline(xintercept = 0.05, linetype = "dashed", colour = "red", linewidth = 0.6) +
+  scale_fill_manual(values = c("Observed Market Behavior" = col_orange,
+                                "Reporting Bias" = "#984ea3",
+                                "Reported Say-do Gap" = "grey70")) +
+  scale_x_continuous(breaks = c(0, 0.2, 0.5)) + 
+  facet_wrap(~ effect, nrow = 1) +
+  labs(x = "P value", y = "Frequency", fill = NULL,
+       title = expression(bold("a. Distribution of P values across specifications (by effect type)"))) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom",
+        strip.text = element_text(face = "bold"))
+
+
+# ===================================================================
+# PANEL B: Specification Curve (Total β sorted, by DV)
+# ===================================================================
+
+spec_data <- all_long[all_long$effect == "Total", ]
+spec_data <- spec_data[order(spec_data$dv_label, spec_data$beta), ]
+spec_data$rank <- ave(seq_len(nrow(spec_data)), spec_data$dv_label, FUN = seq_along)
+
+p_B <- ggplot(spec_data, aes(x = rank, y = beta, colour = dv_label)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50") +
+  geom_point(aes(shape = ifelse(sig == "ns", "ns", "sig")), size = 2.2) +
+  facet_wrap(~ dv_label, scales = "free", nrow = 1) +
+  scale_colour_manual(values = c("Observed Market Behavior" = col_orange,
+                                  "Reporting Bias" = "#984ea3",
+                                  "Reported Say-do Gap" = "grey50")) +
+  scale_shape_manual(values = c(sig = 16, ns = 1), guide = "none") +
+  labs(x = "Specification (sorted by \u03b2)", y = expression("Total effect " * beta),
+       colour = NULL,
+       title = expression(bold("b. Specification curve: Total effect across all index variants"))) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "none", strip.text = element_text(face = "bold"))
+
+
+# ===================================================================
+# PANELS C1 / C2 / C3: β heatmap for Total / Direct / Indirect
+# ===================================================================
+
+param_levels <- c(
+  paste0(seq(7, 21, 2), "\u00d7", seq(7, 21, 2)),
+  "Mix0.3:Frag0.7", "Mix0.5:Frag0.5", "Mix0.7:Frag0.3",
+  "Crop+Green", "CropOnly"
+)
+col_levels <- c("Grocery\nRG", "Electronic\nRG",
+                 "Grocery\nRB", "Electronic\nRB",
+                 "Grocery\nObs", "Electronic\nObs")
+
+make_heat <- function(eff_label, title_str, fill_limits) {
+  hd <- all_long[all_long$effect == eff_label, ]
+  hd$col_label  <- paste0(hd$domain, "\n", hd$dv_type)
+  hd$param      <- factor(hd$param, levels = rev(param_levels))
+  hd$col_label  <- factor(hd$col_label, levels = col_levels)
+  hd$cell_label <- paste0(sprintf("%.2f", hd$beta), "\n", hd$sig)
+  ggplot(hd, aes(x = col_label, y = param, fill = beta)) +
+    geom_tile(colour = "white", linewidth = 0.5) +
+    geom_text(aes(label = cell_label), size = 3.8, lineheight = 0.9) +
+    geom_tile(data = hd[hd$is_baseline, ],
+              colour = "red", fill = NA, linewidth = 0.8) +
+    scale_fill_gradient2(low = col_green, mid = "white", high = col_orange,
+                          midpoint = 0, limits = fill_limits,
+                          name = expression(beta)) +
+    labs(x = NULL, y = NULL, title = title_str) +
+    theme_minimal(base_size = 12) +
+    theme(axis.text.x = element_text(size = 12, face = "bold"),
+          axis.text.y = element_text(size = 12),
+          panel.grid = element_blank(),
+          legend.position = "right",
+          plot.title = element_text(face = "bold", size = 12))
+}
+
+p_C1 <- make_heat("Total",     expression(bold("c1. Total effect (β) across all specifications")),    c(-0.8, 0.7))
+p_C2 <- make_heat("Direct",    expression(bold("c2. Direct effect (β) across all specifications")),   c(-0.8, 0.7))
+p_C3 <- make_heat("Indirect", expression(bold("c3. Indirect effect (β) across all specifications")),  c(-0.5, 0.4))
+
+
+# ===================================================================
+# COMBINE: A / B / C1 / C2 / C3
+# ===================================================================
+
+p_A <- p_A + theme(plot.title = element_text(face = "bold", size = 12, hjust = 0))
+p_B <- p_B + theme(plot.title = element_text(face = "bold", size = 12, hjust = 0))
+p_C1 <- p_C1 + theme(plot.title = element_text(face = "bold", size = 12, hjust = 0))
+p_C2 <- p_C2 + theme(plot.title = element_text(face = "bold", size = 12, hjust = 0))
+p_C3 <- p_C3 + theme(plot.title = element_text(face = "bold", size = 12, hjust = 0))
+
+p_combined <- p_A / p_B / p_C1 / p_C2 / p_C3 +
+  plot_layout(heights = c(1.2, 1, 2, 2, 2))
+
+p_combined
+ggsave("FigS_robustness_multiverse.png", p_combined,
+       width = 16, height = 22, dpi = 600)
+
+write.csv(win_sens, "robustness_window_sensitivity.csv", row.names = FALSE)
+write.csv(wt_sens,  "robustness_weight_sensitivity.csv", row.names = FALSE)
+write.csv(cag_sens, "robustness_cropgreen_sensitivity.csv", row.names = FALSE)
+```

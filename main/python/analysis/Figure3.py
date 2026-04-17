@@ -1,0 +1,189 @@
+# This scipt replicates the waterfall chart as the Figure 3
+# 
+# Created at 23/10/2025
+# 
+from pathlib import Path
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+
+
+def run_waterfall() -> None:
+    """Replicate the waterfall chart as the Figure 3"""
+
+    f = Path('data') / 'replication_figure3' / 'fig3-waterfall.xlsx'
+    calculate = pd.read_excel(f, sheet_name='waterfall-calculate')
+    coef = pd.read_excel(f, sheet_name='estimates', index_col=0)
+
+    # 1. Data preparation & calculation
+    pnl = calculate[['city', 'country']].copy(True)
+    # note: use `BPN` only to show the linear relationship between the Gaps and the CTN effect
+    for activity in ['Grocery', 'Electronic']:
+        # first, Gap1 with/without CTN
+        gap1_with_ctn = calculate[f'Gap1_{activity}_BPN']
+        gap1_delta = calculate['CTN'] * coef.loc['coef', f'Gap1_{activity}_BPN']
+        gap1_without_ctn = gap1_with_ctn - gap1_delta
+        # second, Gap2 with/without CTN
+        gap2_with_ctn = calculate[f'Gap2_{activity}_BPN']
+        gap2_delta = calculate['CTN'] * coef.loc['coef', f'Gap2_{activity}_BPN']
+        gap2_without_ctn = gap2_with_ctn - gap2_delta
+        # third, Aggregate Gap
+        aggregate_gap = gap1_with_ctn + gap2_with_ctn
+        pnl.loc[: , f'{activity}_gap1_with_ctn'] = gap1_with_ctn
+        pnl.loc[: , f'{activity}_gap1_delta'] = gap1_delta
+        pnl.loc[: , f'{activity}_gap1_without_ctn'] = gap1_without_ctn
+        pnl.loc[: , f'{activity}_gap2_with_ctn'] = gap2_with_ctn
+        pnl.loc[: , f'{activity}_gap2_delta'] = gap2_delta
+        pnl.loc[: , f'{activity}_gap2_without_ctn'] = gap2_without_ctn
+        pnl.loc[: , f'{activity}_aggregate_gap'] = aggregate_gap
+    
+    # 2. Select countries & cities (5 countries, 4 cities)
+    cities_by_country = {
+        'Indonesia': ['Jakarta', 'Surabaya'],
+        'Thailand': ['Bangkok Metropolis', 'Nonthaburi'],
+        'Vietname': ['HCMC', 'Hanoi'],
+        'Malaysia': ['Kuala Lumpur', 'Penang'],
+        'Philippines': ['Metro Manila', 'Bulacan']
+    }
+    mapper_city2name = {
+        'Jakarta': 'Jakarta',
+        'Surabaya': 'Surabaya',
+        'Bangkok Metropolis': 'Bangkok',
+        'Nonthaburi': 'Nonthaburi',
+        'HCMC': 'Ho Chi Minh City',
+        'Hanoi': 'Hanoi',
+        'Kuala Lumpur': 'Kuala Lumpur',
+        'Penang': 'Penang',
+        'Metro Manila': 'Metropolitan Manila',
+        'Bulacan': 'Bulacan'
+    }
+
+    # 2. Define logic for the base (bottom) of each bar
+    annotation_letters = "abcdefghijklmnopqrst"
+    fig, axs = plt.subplots(5, 4, figsize=(12, 14))  # 4:3 aspect, 5 rows (countries), 4 cols (2 cities x 2 activities)
+    axs = axs.flatten()
+    idx = 0
+    for country, cities in cities_by_country.items():
+        for city in cities:
+            for activity in ['Grocery', 'Electronic']:
+                mask = pnl['city'] == city
+                gap1_with_ctn = pnl.loc[mask, f'{activity}_gap1_with_ctn'].item()
+                gap1_delta = pnl.loc[mask, f'{activity}_gap1_delta'].item()
+                gap1_without_ctn = pnl.loc[mask, f'{activity}_gap1_without_ctn'].item()
+                gap2_with_ctn = pnl.loc[mask, f'{activity}_gap2_with_ctn'].item()
+                gap2_delta = pnl.loc[mask, f'{activity}_gap2_delta'].item()
+                gap2_without_ctn = pnl.loc[mask, f'{activity}_gap2_without_ctn'].item()
+                aggregate_gap = pnl.loc[mask, f'{activity}_aggregate_gap'].item()
+                values = np.array([
+                    gap1_without_ctn,
+                    gap1_delta,
+                    gap1_with_ctn,
+                    gap2_without_ctn,
+                    gap2_delta,
+                    aggregate_gap
+                ]).round(3)
+                # create bottoms for bars start at 0. Incremental bars start where the previous bar ended.
+                running_total = 0
+                bottoms = np.zeros(len(values))
+                for i in range(len(values)):
+                    if i in [0, 2, 5]:  # Indices for 'Total/Pillar' bars that start at 0
+                        bottoms[i] = 0
+                        running_total = round(values[i], 3) # Reset running total to this pillar's value
+                    else:
+                        # Floating bars start at the end of the previous bar's total
+                        bottoms[i] = running_total
+                        running_total += round(values[i], 3) # Update running total for the next step
+                
+                # 3. Colors based on your template
+                colors = [
+                    '#7292cb', # Blue: Counterfactual Gap 1
+                    '#b07aa1', # Purple: ΔGap1×CTN
+                    '#85b66f', # Green: Actual Gap 1
+                    '#e8e06a', # Yellow: Counterfactual Gap 2
+                    '#b07aa1', # Purple: ΔGap2×CTN
+                    '#d73027'  # Red: Aggregate Gap
+                ]
+                # 4. Plotting
+                ax = axs[idx]
+                bars = ax.bar(range(len(values)), values, bottom=bottoms, color=colors, edgecolor='black', linewidth=1, width=0.6)
+                # Adding the connecting thin lines (Ghost lines) for the "waterfall" effect
+                for i in range(len(values) - 1):
+                    ax.plot([i + 0.3, i + 0.7], [bottoms[i] + values[i], bottoms[i] + values[i]], 
+                            color='gray', linestyle='-', linewidth=0.5, alpha=0.5)
+
+                # 5. Styling & Labeling
+                ax.set_ylim(-0.2, 1.2)
+                ax.set_yticks([])
+                ax.axhline(y=0, color='black', linestyle='-', linewidth=1.)
+                
+                ax.spines['left'].set_visible(False)
+                ax.spines['top'].set_visible(False)
+                ax.spines['right'].set_visible(False)
+                ax.spines['bottom'].set_color('#cccccc')
+                # Add value labels on top of bars
+                for i, bar in enumerate(bars):
+                    yval = bar.get_height() + bar.get_y()
+                    if values[i] < 0 or i == 4:
+                        yloc = yval - 0.01
+                        va = 'top'
+                    else:
+                        yloc = yval + 0.01
+                        va = 'bottom'
+                    ax.text(
+                        bar.get_x() + bar.get_width() / 2, yloc, f'{bar.get_height():.2f}',
+                        ha='center', va=va, fontsize=9, color='#555555'
+                    )
+                # First text box: annotation letter (a-t), bold, upper-left corner
+                ax.text(
+                    -0.05, 1.02,
+                    f"{annotation_letters[idx]}",  # letter only
+                    transform=ax.transAxes,
+                    ha='left', va='top',
+                    fontsize=13, fontweight='bold',
+                    bbox=dict(facecolor='white', edgecolor='none', pad=1, alpha=0.7)
+                )
+                # Second text box: city name and activity, centered at top-middle
+                ax.text(
+                    0.5, 1.02,
+                    f"{mapper_city2name[city]}, {activity}",
+                    transform=ax.transAxes,
+                    ha='center', va='top',
+                    fontsize=9,
+                    bbox=dict(facecolor='white', edgecolor='none', pad=1, alpha=0.7)
+                )
+                # Only show xticks for last row (idx >= 16), hide for others
+                ax.set_xticks(range(len(values)))
+                ax.set_xticklabels([])
+                if idx in [0, 4, 8, 12, 16]:
+                    ax.set_ylabel(country, fontsize=12)
+
+                idx += 1
+    # save figures for 20 cities
+    labels = [
+        ("Counterfactual\nReported Say-do Gap", '#7292cb'), 
+        ("Reported\nSay-do Gap", '#85b66f'),
+        ("Counterfactual\nReporting Bias", '#e8e06a'),
+        ("Total Gap", '#d73027'),
+        ("+ NC Contribution", '#b07aa1')
+    ]
+    # Create custom legend handles (rectangles) to match bar colors
+    legend_handles = [mpatches.Rectangle((0, 0), 1, 1, facecolor=c, edgecolor='black', label=lbl) for lbl, c in labels]
+    # Add legend to bottom center of the figure
+    fig.legend(
+        handles=legend_handles, 
+        labels=[lbl for lbl, _ in labels], 
+        loc='lower center',
+        ncol=len(labels),
+        bbox_to_anchor=(0.5, -0.04),
+        fontsize=12,
+        frameon=False
+    )
+    plt.tight_layout()
+    plt.savefig('figures/raw/Figure3_Waterfall.svg', dpi=600, bbox_inches='tight')
+    plt.show()
+
+
+if __name__ == "__main__":
+    # quick test: the waterfall chart
+    run_waterfall()
