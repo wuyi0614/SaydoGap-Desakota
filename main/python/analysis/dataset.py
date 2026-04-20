@@ -16,7 +16,7 @@ def get_geo_metrics():
     from pathlib import Path
 
     # get desakota & other geographical data ready
-    f = Path('data') / 'replication_geometric' / 'processed' / 'GeoIndex.xlsx'
+    f = Path('data') / 'GeoIndex.xlsx'
     metric = pd.read_excel(f)
     metric['city'] = metric['city'].str.replace('_', ' ')
     # combine 'Sabah' and 'Sarawak' into one city (according to the official names)

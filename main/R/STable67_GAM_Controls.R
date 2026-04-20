@@ -8,9 +8,9 @@
 #
 # Input:  In-memory objects from Figure4.R (same R session)
 # Output: data/supplementary/STable6_ModelComparison.csv
-#         figures/STable6_ModelComparison.png
-#         data/supplementary/STable7_GAM_TurningPoints.csv
-#         figures/STable7_GAM_TurningPoints.png
+#         figures/raw/STable6_ModelComparison.png
+#         data/replication_supplementary/STable7_GAM_TurningPoints.csv
+#         figures/raw/STable7_GAM_TurningPoints.png
 #
 # Dependency: Run Figure4.R first in the SAME R session.
 #   Required objects: df_z, df_plot_b, col_green, col_desakota
@@ -31,9 +31,9 @@ library(gt)
 library(dplyr)
 # mgcv is already loaded via Figure4.R
 
-out_dir <- "output"
-dir.create(file.path(out_dir, "png"), showWarnings = FALSE, recursive = TRUE)
-dir.create(file.path(out_dir, "csv"), showWarnings = FALSE, recursive = TRUE)
+out_dir <- "figures/raw"
+# dir.create(file.path(out_dir, "png"), showWarnings = FALSE, recursive = TRUE)
+# dir.create(file.path(out_dir, "csv"), showWarnings = FALSE, recursive = TRUE)
 
 controls <- c("GDP_per", "onlineShoppingExperience", "isHighEdu",
               "socialMediaHrs", "Main.religion", "country")
@@ -448,7 +448,7 @@ csv_t1 <- supp_t1 %>%
     GAM_R2, GAM_AIC, GAM_logLik
   )
 write.csv(csv_t1,
-          file.path(out_dir, "data/supplementary/STable6_ModelComparison.csv"),
+          file.path("data/replication_supplementary", "STable6_ModelComparison.csv"),
           row.names = FALSE)
 cat("Supplementary Table 1 CSV saved.\n")
 
@@ -514,7 +514,7 @@ gt_t1 <- t1_display %>%
   ))) %>%
   apply_gt_theme(tbl_width = pct(100))
 
-png_t1 <- file.path(out_dir, "figures/STable6_ModelComparison.png")
+png_t1 <- file.path(out_dir, "STable6_ModelComparison.png")
 gtsave(gt_t1, filename = png_t1, zoom = 2, expand = 20)
 cat("Supplementary Table 1 PNG saved.\n\n")
 
@@ -545,7 +545,7 @@ if (length(extrema_rows) > 0) {
   
   # 6c. CSV --------------------------------------------------------------------
   write.csv(supp_t2,
-            file.path(out_dir, "data/supplementary/STable7_GAM_TurningPoints.csv"),
+            file.path("data/replication_supplementary", "STable7_GAM_TurningPoints.csv"),
             row.names = FALSE)
   cat("\nSupplementary Table 2 CSV saved.\n")
   
@@ -579,7 +579,7 @@ if (length(extrema_rows) > 0) {
     ))) %>%
     apply_gt_theme(tbl_width = pct(70))
   
-  png_t2 <- file.path(out_dir, "png/Supplementary_Table2_GAM_TurningPoints.png")
+  png_t2 <- file.path(out_dir, "Supplementary_Table2_GAM_TurningPoints.png")
   gtsave(gt_t2, filename = png_t2, zoom = 2, expand = 20)
   cat("Supplementary Table 2 PNG saved.\n")
   
@@ -608,8 +608,7 @@ if (length(extrema_rows) > 0) {
               locations = cells_body()) %>%
     apply_gt_theme(tbl_width = pct(70))
   
-  png_t2 <- file.path(out_dir, "figures/STable7_GAM_TurningPoints.png")
+  png_t2 <- file.path(out_dir, "STable7_GAM_TurningPoints.png")
   gtsave(gt_t2_empty, filename = png_t2, zoom = 2, expand = 20)
   cat("Supplementary Table 2 (no-extrema notice) PNG saved.\n")
 }
-

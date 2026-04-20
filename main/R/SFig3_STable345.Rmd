@@ -19,7 +19,7 @@ for (pkg in required_pkgs) {
 ```
 
 ```{r load-data}
-df_raw <- read.csv("data/MergedPanelV5.csv", fileEncoding="latin1", stringsAsFactors=FALSE)
+df_raw <- read.csv("data/MergedPanel.csv", fileEncoding="latin1", stringsAsFactors=FALSE)
 df <- df_raw %>% filter(!city %in% c("Sabah & Sarawak","Davao del Sur","Other"))
 cat("Data:", nrow(df), "cities\n")
 ```
@@ -166,7 +166,7 @@ p_fig1a <- ggplot() +
   theme_minimal(base_size=12) +
   theme(legend.position="right", strip.text=element_text(face="bold",size=12), panel.grid.minor=element_blank())
 p_fig1a
-ggsave("Fig1a_slope_graph.png", p_fig1a, width=16, height=5.5, dpi=300)
+ggsave("figures/raw/Fig1a_slope_graph.png", p_fig1a, width=16, height=5.5, dpi=300)
 ```
 
 
@@ -217,7 +217,7 @@ p_fig2 <- ggplot(all_corr, aes(x=r,y=reorder(indicator,row_id),colour=category,s
   labs(x="Pearson r",y=NULL,colour=NULL,shape=NULL) +
   theme_minimal(base_size=12)+theme(legend.position="bottom",panel.grid.minor=element_blank())
 p_fig2
-ggsave("Fig2_NC_correlations.png", p_fig2, width=10, height=10, dpi=300)
+ggsave("figures/raw/Fig2_NC_correlations.png", p_fig2, width=10, height=10, dpi=300)
 ```
 
 
@@ -490,7 +490,7 @@ p_fig4a <- ggplot(fig4a_long, aes(x=beta,y=row_label,colour=spatial_label,shape=
         strip.background.y=element_rect(fill="grey92",colour=NA),
         legend.position="bottom", panel.spacing.y=unit(.3,"lines"))
 p_fig4a
-ggsave("Fig4a_forest_plot.png", p_fig4a, width=14, height=8, dpi=300)
+ggsave("figures/raw/Fig4a_forest_plot.png", p_fig4a, width=14, height=8, dpi=300)
 ```
 
 
@@ -544,7 +544,7 @@ make_overlay <- function(domain_label) {
 }
 p_fig4b <- make_overlay("Grocery") | make_overlay("Electronic")
 p_fig4b
-ggsave("Fig4b_GAM_scatter.png", p_fig4b, width=14, height=6, dpi=300)
+ggsave("figures/raw/Fig4b_GAM_scatter.png", p_fig4b, width=14, height=6, dpi=300)
 ```
 
 
@@ -582,7 +582,7 @@ p_fig5a <- ggplot(df_plot, aes(x=Desa_CropOnly_z,y=Green_Exposure_z,colour=Count
        title="Morphological Classification",tag="a")+
   theme_minimal(base_size=12)+theme(legend.position="bottom")
 p_fig5a
-ggsave("Fig5a_scatter.png", p_fig5a, width=10, height=8, dpi=300)
+ggsave("figures/raw/Fig5a_scatter.png", p_fig5a, width=10, height=8, dpi=300)
 ```
 
 ## b. Profiles
@@ -609,7 +609,7 @@ p_fig5b <- ggplot(prof, aes(x=metric, y=val, fill=urban_typology))+
   labs(x=NULL,y="Average Z-Score",title="Behavioral Profiles by Zone",fill="Urban Typology",tag="b")+
   theme_minimal(base_size=11)+theme(legend.position="bottom")
 p_fig5b
-ggsave("Fig5b_profiles.png", p_fig5b, width=8, height=5, dpi=300)
+ggsave("figures/raw/Fig5b_profiles.png", p_fig5b, width=8, height=5, dpi=300)
 ```
 
 ## c. City Composition by Country
@@ -649,7 +649,7 @@ p_fig5c <- ggplot(comp_data, aes(x = Country, y = pct, fill = urban_typology)) +
   theme_minimal(base_size = 11) +
   theme(legend.position = "bottom", axis.text.x = element_text(angle = 30, hjust = 1))
 p_fig5c
-ggsave("Fig5c_composition.png", p_fig5c, width = 10, height = 5, dpi = 300)
+ggsave("figures/raw/Fig5c_composition.png", p_fig5c, width = 10, height = 5, dpi = 300)
 ```
 
 
@@ -871,7 +871,7 @@ p_win <- ggplot(win_long, aes(x = window, y = beta, colour = effect, shape = eff
         axis.text.x = element_text(angle = 45, hjust = 1))
 
 p_win
-ggsave("FigS_window_sensitivity.png", p_win, width = 14, height = 8, dpi = 300)
+ggsave("figures/raw/FigS_window_sensitivity.png", p_win, width = 14, height = 8, dpi = 300)
 ```
 
 
@@ -979,7 +979,7 @@ p_wt <- ggplot(wt_long, aes(x = beta, y = weight_label, colour = effect, shape =
   theme(strip.text = element_text(face = "bold"), legend.position = "bottom")
 
 p_wt
-ggsave("FigS_weight_sensitivity.png", p_wt, width = 14, height = 7, dpi = 300)
+ggsave("figures/raw/FigS_weight_sensitivity.png", p_wt, width = 14, height = 7, dpi = 300)
 ```
 
 
@@ -1072,7 +1072,7 @@ p_cag <- ggplot(cag_long, aes(x = beta, y = variant, colour = effect, shape = ef
   theme(strip.text = element_text(face = "bold"), legend.position = "bottom")
 
 p_cag
-ggsave("FigS_cropgreen_sensitivity.png", p_cag, width = 14, height = 6, dpi = 300)
+ggsave("figures/raw/FigS_cropgreen_sensitivity.png", p_cag, width = 14, height = 6, dpi = 300)
 ```
 
 
@@ -1196,7 +1196,7 @@ p_robust_gro <- ggplot(d_gro, aes(x = beta, y = param_value, colour = effect, sh
         axis.text.y = element_text(size = 8))
 
 p_robust_gro
-ggsave("FigS_robustness_grocery.png", p_robust_gro, width = 14, height = 12, dpi = 300)
+ggsave("figures/raw/FigS_robustness_grocery.png", p_robust_gro, width = 14, height = 12, dpi = 300)
 ```
 
 ```{r fig-robustness-combined, fig.width=16, fig.height=22, fig.cap="**Supplementary Fig. S** | Multiverse robustness of the Desakota Index."}
@@ -1342,10 +1342,10 @@ p_combined <- p_A / p_B / p_C1 / p_C2 / p_C3 +
   plot_layout(heights = c(1.2, 1, 2, 2, 2))
 
 p_combined
-ggsave("FigS_robustness_multiverse.png", p_combined,
+ggsave("figures/raw/FigS_robustness_multiverse.png", p_combined,
        width = 16, height = 22, dpi = 600)
 
-write.csv(win_sens, "robustness_window_sensitivity.csv", row.names = FALSE)
-write.csv(wt_sens,  "robustness_weight_sensitivity.csv", row.names = FALSE)
-write.csv(cag_sens, "robustness_cropgreen_sensitivity.csv", row.names = FALSE)
+write.csv(win_sens, "data/replication_supplementary/STable3_Desakota_window_sensitivity.csv", row.names = FALSE)
+write.csv(wt_sens,  "data/replication_supplementary/STable4_Desakota_weight_sensitivity.csv", row.names = FALSE)
+write.csv(cag_sens, "data/replication_supplementary/STable5_Desakota_cropgreen_sensitivity.csv", row.names = FALSE)
 ```

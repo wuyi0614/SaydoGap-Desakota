@@ -8,8 +8,8 @@
 #     (3) Electronic × LPM,     (4) Electronic × BPN
 #
 # Input:  data/IncludingLogData.csv
-# Output: data/supplementary/STable8_Robustness_ZonalBehavior.csv
-#         figures/STable8_Robustness_ZonalBehavior.png
+# Output: data/replication_supplementary/STable8_Robustness_ZonalBehavior.csv
+#         figures/raw/STable8_Robustness_ZonalBehavior.png
 #
 # Dependency: Run STable18_tranformation.R first (generates input CSV).
 ################################################################################
@@ -246,7 +246,7 @@ gt_tbl <- df_wide %>%
 
 # Save as PNG
 gtsave(gt_tbl,
-       "figures/STable8_Robustness_ZonalBehavior.png",
+       "figures/raw/STable8_Robustness_ZonalBehavior.png",
        expand = 20)
 
 cat("Table PNG saved.\n")

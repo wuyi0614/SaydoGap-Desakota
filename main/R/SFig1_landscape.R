@@ -6,7 +6,7 @@
 #   mirroring the Grocery map in Figure 1 Panel B.
 #
 # Input:  None (uses in-memory objects from Figure1.R)
-# Output: figures/SFig1_landscape.png, figures/SFig1_landscape.svg
+# Output: figures/raw/SFig1_landscape.png, figures/raw/SFig1_landscape.svg
 #
 # Dependency: Run Figure1.R (sections 1-2) first in the SAME R session.
 #   Required objects:
@@ -17,7 +17,7 @@
 ################################################################################
 
 # ── Output directories ────────────────────────────────────────────────────────
-out_dir <- "figures"
+out_dir <- "figures/raw"
 dir.create(file.path(out_dir, "png"), showWarnings = FALSE, recursive = TRUE)
 dir.create(file.path(out_dir, "svg"), showWarnings = FALSE, recursive = TRUE)
 

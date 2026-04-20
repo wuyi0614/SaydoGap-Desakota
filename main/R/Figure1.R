@@ -11,8 +11,8 @@
 #   Panel B (bottom):  Geographic map with dual encoding
 #     (size = BPN Reporting Bias, color = LPM Reporting Bias).
 #
-# Input:  data/MergedPanelV5.csv, data/GeoIndexV6.xlsx
-# Output: figures/Figure1_GreenIllusion.png, figures/Figure1_GreenIllusion.svg
+# Input:  data/MergedPanel.csv, data/GeoIndex.xlsx
+# Output: figures/raw/Figure1_GreenIllusion.png, figures/raw/Figure1_GreenIllusion.svg
 ################################################################################
 rm(list = ls())
 library(dplyr)
@@ -29,7 +29,7 @@ df <- read.csv("data/MergedPanelV5.csv") %>%
   mutate(country=Country)
 
 # ── Output directory ─────────────────────────────────────────────────────────
-out_dir <- "figures"
+out_dir <- "figures/raw"
 dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
 
 ################################################################################

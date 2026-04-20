@@ -7,8 +7,8 @@
 #   Metrics are grouped into four categories:
 #   Psychological, Intention, Reported, and Observed (market data).
 #
-# Input:  data/merged_V5_final.csv
-# Output: figures/Figure2_CTN_Puzzle.png, figures/Figure2_CTN_Puzzle.svg
+# Input:  data/MergedPanel.csv
+# Output: figures/raw/Figure2_CTN_Puzzle.png, figures/raw/Figure2_CTN_Puzzle.svg
 ###############################################################################
 
 rm(list = ls())
@@ -214,7 +214,7 @@ fig <- ggplot(plot_df, aes(x = r, y = Label,
 
 # ── 8. Save ──────────────────────────────────────────────────────────────────
 
-out_dir <- "figures"
+out_dir <- "figures/raw"
 dir.create(file.path(out_dir, "png"), showWarnings = FALSE, recursive = TRUE)
 
 ggsave(file.path(out_dir, "Figure2_CTN_Puzzle.png"), fig,
@@ -226,5 +226,3 @@ if (requireNamespace("svglite", quietly = TRUE)) {
          width = 130, height = 120, units = "mm",
          device = svglite::svglite, bg = "white")
 }
-
-fig

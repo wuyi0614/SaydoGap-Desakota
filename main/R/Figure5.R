@@ -9,8 +9,8 @@
 #   Panel 5c (pie charts): Zone composition
 #
 # Input:  data/IncludingLogData.csv
-# Output: figures/Figure5_Zonal_Master_{DOMAIN}.png
-#         figures/Figure5_Zonal_Master_{DOMAIN}.svg
+# Output: figures/raw/Figure5_Zonal_Master_{DOMAIN}.png
+#         figures/raw/Figure5_Zonal_Master_{DOMAIN}.svg
 #
 # Dependency: Run STable18_tranformation.R first (generates input CSV).
 ################################################################################
@@ -373,13 +373,13 @@ composite_final <- cowplot::plot_grid(
 )
 
 ggsave(
-  paste0("figures/Figure5_Zonal_Master_", DOMAIN, ".png"),
+  paste0("figures/raw/Figure5_Zonal_Master_", DOMAIN, ".png"),
   composite_final,
   width = 16, height = 10, units = "in", dpi = 600
 )
 
 ggsave(
-  paste0("figures/Figure5_Zonal_Master_", DOMAIN, ".svg"),
+  paste0("figures/raw/Figure5_Zonal_Master_", DOMAIN, ".svg"),
   composite_final,
   width = 16, height = 10, units = "in"
 )

@@ -45,6 +45,6 @@ for idx, (file, columns) in enumerate(datafiles.items()):
     else:
         panel_all = pd.merge(panel_all, panel, on='city', how='left')
 
-outfile = folder / "GeoIndex.xlsx"
+outfile = Path('data') / "GeoIndex.xlsx"
 panel_all.rename(columns=mapper, inplace=True)
 panel_all.to_excel(outfile, index=False)

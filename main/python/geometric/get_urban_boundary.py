@@ -1,18 +1,20 @@
 import rasterio
 import numpy as np
 import geopandas as gpd
+from tqdm import tqdm
+from pathlib import Path
 from rasterio.features import shapes, geometry_mask
 from shapely.geometry import shape
 from scipy.ndimage import binary_closing
 from skimage.measure import label
 from shapely.ops import unary_union
-from pathlib import Path
 
 # ======================
 # Input / Output
 # ======================
 PARENT_DIR = Path("data") / "replication_geometric"
-gurs_tif = PARENT_DIR / "raw" / "global_urban_and_rural_settlement" / "GURS_SA_.tif"
+# for `GURS_SA.tif` and `GURS_SA_.tif`, the only difference is the map projection. 
+gurs_tif = PARENT_DIR / "raw" / "global_urban_and_rural_settlement" / "GURS_SA.tif"
 city_shp = PARENT_DIR / "raw" / "administrative_boundaries _SEA_cities" / "sea-city-with-coordinates.shp"
 out_shp = PARENT_DIR / "processed" / "SEA_city_core.shp"
 
@@ -61,8 +63,7 @@ rural_labels = label(rural_closed, connectivity=2)
 # ======================
 result_geoms = []
 result_attrs = []
-
-for idx, city in cities.iterrows():
+for idx, city in tqdm(cities.iterrows(), total=len(cities), desc="Processing cities"):
 
     geom = city.geometry
     if geom is None or geom.is_empty:

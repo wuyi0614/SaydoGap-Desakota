@@ -10,7 +10,7 @@
 #     for Grocery (left) and Electronics (right).
 #
 # Input:  data/IncludingLogData.csv
-# Output: figures/Figure4_FE.png, figures/Figure4_FE.svg
+# Output: figures/raw/Figure4_FE.png, figures/raw/Figure4_FE.svg
 #
 # Dependency: Run STable18_tranformation.R first (generates input CSV).
 ################################################################################
@@ -556,7 +556,7 @@ fig4 <- (panel4a) /
 # SAVE
 # ══════════════════════════════════════════════════════════════════════════════
 
-out_dir <- "figures"
+out_dir <- "figures/raw"
 dir.create(file.path(out_dir, "png"), showWarnings = FALSE, recursive = TRUE)
 
 ggsave(file.path(out_dir, "Figure4_FE.png"),

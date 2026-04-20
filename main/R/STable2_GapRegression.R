@@ -9,12 +9,12 @@
 #     Domain:    Grocery | Electronic
 #   Total: 2 x 2 x 2 = 8 regressions, displayed in a combined table.
 #
-# Input:  data/MergedPanelV5.csv
-# Output: figures/STable2_CTNGapRegression.png
+# Input:  data/MergedPanel.csv
+# Output: figures/raw/STable2_CTNGapRegression.png
 # =============================================================================
 rm(list=ls())
 
-df <- read.csv("data/MergedPanelV5.csv") %>%
+df <- read.csv("data/MergedPanel.csv") %>%
   mutate(country=Country,
          isIslam = case_when(
            Main.religion == "Islam" ~ 1,
@@ -261,4 +261,4 @@ save_regression_png <- function(tab_kable, filename = "CombinedRegressionTable.p
 }
 
 # Call the function
-save_regression_png(tab, "figures/STable2_CTNGapRegression.png")
+save_regression_png(tab, "figures/raw/STable2_CTNGapRegression.png")

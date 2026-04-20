@@ -8,11 +8,11 @@
 #   4. Exports the transformed dataset (used by Figure4, Figure5, SFig4, STable8)
 #   5. Exports diagnosis table (CSV + PNG) and distribution plots
 #
-# Input:  data/MergedPanelV6.csv
+# Input:  data/MergedPanel.csv
 # Output: data/IncludingLogData.csv  (transformed dataset)
 #         data/replication_supplementary/STable18_Diagnosis_Results.csv
-#         figures/processed/STable18_Diagnosis_Results.png
-#         figures/processed/SFig5_Distribution_Diagnosis_shifted_log.png
+#         figures/raw/STable18_Diagnosis_Results.png
+#         figures/raw/SFig5_Distribution_Diagnosis_shifted_log.png
 #
 # NOTE: This script MUST run before Figure4, Figure5, SFig4, STable8.
 # ==============================================================================
@@ -358,7 +358,7 @@ gt_tbl <- gt_tbl %>%
 #   ))
 
 # ---- Export: PNG ----
-png_path <- file.path(pics_path, "figures/processed/STable18_Diagnosis_Results.png")
+png_path <- file.path(pics_path, "figures/raw/STable18_Diagnosis_Results.png")
 gtsave(gt_tbl, filename = png_path, expand = 10)
 cat("Diagnosis table (PNG) saved → ", png_path, "\n")
 
@@ -466,7 +466,7 @@ if (n_panels > 0) {
   fig_w <- 180
   fig_h <- max(60 * nrows, 100)
   
-  plot_fname <- file.path(pics_path, "figures",
+  plot_fname <- file.path(pics_path, "figures/raw",
                           paste0("SFig5_Distribution_Diagnosis_", active_transform, ".png"))
   
   ggsave(

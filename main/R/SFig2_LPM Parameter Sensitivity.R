@@ -9,11 +9,11 @@
 #   Panel B: Moran's I heatmap for Reporting Bias spatial clustering
 #            across all (x0, k) combinations.
 #
-# Input:  data/benchmark-150city-130aggvars+sensitivity_49scenario.csv (wide-format)
-#         data/MergedPanelV5.csv (for coordinates)
-#         data/GeoIndexV6.xlsx (city lat/lon)
-# Output: figures/SFig2_LPM_Sensitivity.png
-#         figures/SFig2_LPM_Sensitivity.svg
+# Input:  data/CityPanelSensitivity49Scenarios.csv (wide-format)
+#         data/MergedPanel.csv (for coordinates)
+#         data/GeoIndex.xlsx (city lat/lon)
+# Output: figures/raw/SFig2_LPM_Sensitivity.png
+#         figures/raw/SFig2_LPM_Sensitivity.svg
 #         data/supplementary/STable_LPM_Sensitivity.csv
 ################################################################################
 
@@ -103,16 +103,16 @@ cat(sprintf("Scenarios: %d (1 baseline + %d sensitivity)\n",
             nrow(scenarios_grid) + 1, nrow(scenarios_grid)))
 
 # ── Load coordinates ─────────────────────────────────────────────────────────
-df <- read.csv("data/MergedPanelV5.csv") %>%
+df <- read.csv("data/MergedPanel.csv") %>%
   mutate(country = Country)
 
-coords_matched <- readxl::read_excel("data/GeoIndexV6.xlsx") %>%
+coords_matched <- readxl::read_excel("data/GeoIndex.xlsx") %>%
   mutate(country = Country, latitude = Latitude, longitude = Longitude) %>%
   dplyr::select(city, country, latitude, longitude)
 
 # ── Output directory ─────────────────────────────────────���───────────────────
-out_dir <- "figures"
-dir.create(file.path(out_dir, "png"), showWarnings = FALSE, recursive = TRUE)
+out_dir <- "figures/raw"
+# dir.create(file.path(out_dir, "png"), showWarnings = FALSE, recursive = TRUE)
 
 
 ################################################################################
@@ -507,11 +507,11 @@ composite <- (panel_A / panel_B) +
 print(composite)
 
 # Save outputs
-ggsave(file.path("data/supplementary", "SFig2_LPM_Sensitivity.png"),
+ggsave(file.path(out_dir, "SFig2_LPM_Sensitivity.png"),
        composite, width = 180, height = 200, units = "mm",
        dpi = 600, bg = "white")
 
-dir.create(file.path(out_dir, "svg"), showWarnings = FALSE, recursive = TRUE)
+# dir.create(file.path(out_dir, "svg"), showWarnings = FALSE, recursive = TRUE)
 ggsave(file.path(out_dir, "SFig2_LPM_Sensitivity.svg"),
        composite, width = 180, height = 200, units = "mm",
        device = svglite, bg = "white")
@@ -541,7 +541,7 @@ results_export <- results_df %>%
   arrange(domain, x0_pct, k_pct)
 
 write.csv(results_export,
-          file.path(out_dir, "STable_LPM_Sensitivity.csv"),
+          file.path("data/replication_supplementary", "SFig2_LPM_Sensitivity.csv"),
           row.names = FALSE)
 
 cat("Supplementary table saved.\n")
@@ -576,7 +576,3 @@ for (dom in c("Grocery", "Electronic")) {
 
 cat("================================================================\n")
 cat("DONE.\n")
-
-
-
-

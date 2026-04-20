@@ -9,7 +9,7 @@
 #     Panels c1-c4: Scatter plots with marginal density for selected indices
 #
 # Input:  data/IncludingLogData.csv
-# Output: figures/SFig4_Spatial_vs_NC{_controlled|_bivariate}.png
+# Output: figures/raw/SFig4_Spatial_vs_NC{_controlled|_bivariate}.png
 #
 # Dependency: Run STable18_tranformation.R first (generates input CSV).
 ################################################################################
@@ -334,6 +334,6 @@ composite <- (top_row / bottom_row) +
 suffix <- if (INCLUDE_CONTROLS) "_controlled" else "_bivariate"
 
 # Use width 14 or 15 instead of 12 so the 3 bottom panels have enough breathing room
-ggsave(paste0("figures/SFig4_Spatial_vs_NC", suffix, ".png"), composite,
+ggsave(paste0("figures/raw/SFig4_Spatial_vs_NC", suffix, ".png"), composite,
        width = 14, height = 10, units = "in", dpi = 600)
 
