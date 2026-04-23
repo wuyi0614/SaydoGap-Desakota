@@ -22,7 +22,7 @@ def get_geo_metrics():
     # combine 'Sabah' and 'Sarawak' into one city (according to the official names)
     operator = {
         'Coastal Accessibility': 'mean',
-        'Green Space Accessibility_within_300m': 'mean',
+        'Park Accessibility_within_300m': 'mean',
         'Park Accessibility_within_500m': 'mean',
         'Blue Exposure Index': 'mean',
         'Patch Density': 'mean',
@@ -40,6 +40,9 @@ def get_geo_metrics():
     ci = ['Sabah', 'Sarawak']
     metric.loc[120, operator.keys()] = metric.loc[metric.city.isin(ci), :].agg(operator)
     metric.loc[120, 'city'] = 'Sabah & Sarawak'
+    # unify the historic and current city names
+    metric.loc[metric.city == 'Davao Occidental', 'city'] = 'Davao del Sur'
+    metric.loc[metric.city == 'N Sembilan', 'city'] = 'N. Sembilan'
     metric.drop(index=127, inplace=True)
     metric.reset_index(drop=True, inplace=True)
     return metric
@@ -90,14 +93,12 @@ def get_panel_exported_with_sensitivity():
     if fparam.exists():
         fparam.unlink()
     
-    metric = get_geo_metrics()
     # Note: add sensitivity parameter at 20 Mar 2026
     sensitivities = [0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3]  # sensitivities for the LPM parameters from 70% to 130% 
     agg_survey = get_survey_aggregated(sensitivities)
     buyerpnl, survey, citypnl = get_transaction_aggregated(sensitivities)
     buyerpnl.to_csv(fbuyer, index=False)
     pnl = citypnl.merge(agg_survey, on='city', how='left')
-    pnl = pnl.merge(metric, on='city', how='left')
     pnl.to_csv(fpnl, index=False)
     param = next(read_from_jsonl(fparam))
     param.to_csv(fparam.with_suffix('.csv'), index=False)
@@ -106,4 +107,13 @@ def get_panel_exported_with_sensitivity():
 
 if __name__ == "__main__":
     # quick test: the panel data for the baseline and sensitivity analysis
-    buyerpnl, survey, citypnl = get_panel_exported_with_sensitivity()
+    import pandas as pd
+    from pathlib import Path
+    from main.python.analysis.dataset import get_geo_metrics
+    
+    # run the following codes to generate the MergedPanel.csv for analysis
+    # the `CityPanel.csv` is the real city panel data for the survey and product data derived from the confidential data
+    citypnl = pd.read_csv(Path('data') / 'CityPanel.csv')
+    metric = get_geo_metrics()
+    citypnl = citypnl.merge(metric, on='city', how='left')
+    citypnl.to_csv(Path('data') / 'MergedPanel.csv', index=False)

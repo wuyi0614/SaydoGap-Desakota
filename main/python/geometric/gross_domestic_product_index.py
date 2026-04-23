@@ -43,7 +43,6 @@ def get_utm_crs(lon, lat):
 # =========================
 # 1. Process GDP (pixel-by-pixel intersection method)
 # =========================
-print("Starting GDP processing...")
 
 with rasterio.open(GDP_TIF_PATH) as src:
     raster_crs = src.crs
@@ -152,7 +151,7 @@ for i, item in enumerate(results):
         })
 
         with TemporaryDirectory() as tmpdir:
-            reproj_tif = tmpdir / "reproj.tif"
+            reproj_tif = Path(tmpdir) / "reproj.tif"
 
             with rasterio.open(reproj_tif, "w", **meta) as dst:
                 reproject(
