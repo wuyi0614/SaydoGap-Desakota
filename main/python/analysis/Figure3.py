@@ -43,17 +43,18 @@ def run_waterfall() -> None:
 
     # use `genGreenConnectness`, which is the CTN in the regression tables
     calculate.loc[:, 'CTN'] = calculate['genGreenConnectness'].copy()
+    method = 'LPM'  # using 'LPM' by default, can be changed to 'BPN' for the BPN-based analysis
     # 1. Data preparation & calculation
     pnl = calculate[['city', 'country']].copy(True)
     # note: use `BPN` only to show the linear relationship between the Gaps and the CTN effect
     for activity in ['Grocery', 'Electronic']:
         # first, Gap1 with/without CTN
-        gap1_with_ctn = calculate[f'Gap1_{activity}_BPN']
-        gap1_delta = calculate['CTN'] * coef.loc['coef', f'Gap1_{activity}_BPN']
+        gap1_with_ctn = calculate[f'Gap1_{activity}_{method}']
+        gap1_delta = calculate['CTN'] * coef.loc['coef', f'Gap1_{activity}_{method}']
         gap1_without_ctn = gap1_with_ctn - gap1_delta
         # second, Gap2 with/without CTN
-        gap2_with_ctn = calculate[f'Gap2_{activity}_BPN']
-        gap2_delta = calculate['CTN'] * coef.loc['coef', f'Gap2_{activity}_BPN']
+        gap2_with_ctn = calculate[f'Gap2_{activity}_{method}']
+        gap2_delta = calculate['CTN'] * coef.loc['coef', f'Gap2_{activity}_{method}']
         gap2_without_ctn = gap2_with_ctn - gap2_delta
         # third, Aggregate Gap
         aggregate_gap = gap1_with_ctn + gap2_with_ctn
@@ -66,6 +67,7 @@ def run_waterfall() -> None:
         pnl.loc[: , f'{activity}_aggregate_gap'] = aggregate_gap
     
     pnl.to_csv(Path('data') / 'replication_figure3' / 'Figure3_Waterfall_Data.csv', index=False)
+
     # 2. Select countries & cities (5 countries, 4 cities)
     cities_by_country = {
         'Indonesia': ['Jakarta', 'Surabaya'],
@@ -141,7 +143,7 @@ def run_waterfall() -> None:
                             color='gray', linestyle='-', linewidth=0.5, alpha=0.5)
 
                 # 5. Styling & Labeling
-                ax.set_ylim(-0.2, 1.2)
+                ax.set_ylim(-0.0, 1.05)  # use (-0.05, 1.05) for the LPM-based analysis, (-0.05, 1.2) for the BPN-based analysis
                 ax.set_yticks([])
                 ax.axhline(y=0, color='black', linestyle='-', linewidth=1.)
                 
@@ -161,7 +163,7 @@ def run_waterfall() -> None:
                     ax.text(
                         bar.get_x() + bar.get_width() / 2, yloc, 
                         f'{bar.get_height():.2f}'.replace('-', '−') if bar.get_height() < 0 else f'{bar.get_height():.2f}',
-                        ha='center', va=va, fontsize=9, color='#555555'
+                        ha='center', va=va, fontsize=10.5, color='#555555'
                     )
                 # First text box: annotation letter (a-t), bold, upper-left corner
                 ax.text(
