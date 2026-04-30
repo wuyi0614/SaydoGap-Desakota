@@ -4,7 +4,6 @@ import geopandas as gpd
 import rasterio
 from rasterio.mask import mask
 from rasterio.warp import reproject, Resampling
-from rasterio.features import rasterize
 from shapely.geometry import box
 from scipy.ndimage import uniform_filter
 import pandas as pd
@@ -18,13 +17,8 @@ PARENT_DIR = Path("data") / "replication_geometric"
 CITY_SHP_DIR = PARENT_DIR / "processed" / "urban_built-up_boundary"
 GURS_TIF = PARENT_DIR / "raw" / "global_urban_and_rural_settlement" / "GURS_SA_.tif"
 LUCC_DIR = PARENT_DIR / "raw" / "land_use"
-GREEN_SHP_DIR = PARENT_DIR / "raw" / "suburban_green_space"
-OUT_CSV = PARENT_DIR / "processed" / "desakota_index" / "Desakota_window_sensitivity.csv"
 
-#OUT_CURVE = os.path.join(OUT_DIR, "window_sensitivity_curve.png")
-#OUT_BOX = os.path.join(OUT_DIR, "window_boxplot.png")
-#OUT_STD = os.path.join(OUT_DIR, "city_sensitivity.csv")
-
+OUT_CSV = PARENT_DIR / "processed" / "desakota_index" / "Desakota_window_sensitivity_crop_only.csv"
 # =========================
 # Parameters
 # =========================
@@ -32,27 +26,6 @@ BUFFER_DIST = 3000
 BUFFER_CRS = "EPSG:3857"
 WINDOW_LIST = [7, 9, 11, 13, 15, 17, 19, 21]
 EPS = 1e-6
-
-
-# =========================
-# Build Green Space Mapping
-# =========================
-green_match = {}
-
-for f in os.listdir(GREEN_SHP_DIR):
-
-    if not f.lower().endswith(".shp"):
-        continue
-
-    name = os.path.splitext(f)[0]
-
-    if name == "N_Sembilan":
-        city_key = name
-    else:
-        city_key = name.replace("_", " ")
-
-    green_match[city_key] = os.path.join(GREEN_SHP_DIR, f)
-
 
 # =========================
 # Resampling Function
@@ -73,7 +46,6 @@ def resample_to_match(src_array, src_transform, src_crs,
         dst_crs=dst_crs,
         resampling=resampling
     )
-
     return dst
 
 
@@ -104,7 +76,6 @@ with rasterio.open(GURS_TIF) as gurs_src:
             continue
 
         city_gdf = gpd.read_file(shp_path)
-
         if city_gdf.empty:
             skipped.append(city)
             continue
@@ -137,10 +108,9 @@ with rasterio.open(GURS_TIF) as gurs_src:
         gurs = gurs[0]
 
         # =========================
-        # Mask LUCC and Resample
+        # Mask LUCC and Resample (Crop Only)
         # =========================
         with rasterio.open(lucc_path) as lucc_src:
-
             lucc_raw, lucc_transform = mask(lucc_src, geom, crop=True, nodata=0)
             lucc_raw = lucc_raw[0]
 
@@ -153,32 +123,8 @@ with rasterio.open(GURS_TIF) as gurs_src:
                 gurs_src.crs
             )
 
+        # Binary Agricultural mask (Crop Only)
         A = (A == 1).astype(np.uint8)
-
-        # =========================
-        # Process Green Space
-        # =========================
-        green_path = green_match.get(city, None)
-
-        if green_path and os.path.exists(green_path):
-
-            green_gdf = gpd.read_file(green_path)
-
-            if not green_gdf.empty:
-
-                green_gdf = green_gdf.to_crs(gurs_src.crs)
-
-                shapes = [(geom, 1) for geom in green_gdf.geometry]
-
-                green_raster = rasterize(
-                    shapes,
-                    out_shape=gurs.shape,
-                    transform=gurs_transform,
-                    fill=0,
-                    dtype=np.uint8
-                )
-
-                A = np.logical_or(A == 1, green_raster == 1).astype(np.uint8)
 
         # =========================
         # Land Cover Classification
@@ -187,12 +133,11 @@ with rasterio.open(GURS_TIF) as gurs_src:
         V = ((gurs == 2) & (A == 0)).astype(np.uint8)
 
         urban_area = U.sum() * pixel_area
-
         if urban_area == 0:
             continue
 
         # =========================
-        # Sensitivity Analysis: Different Windows
+        # Sensitivity Analysis: Different Window Sizes
         # =========================
         for WINDOW in WINDOW_LIST:
 
@@ -210,7 +155,7 @@ with rasterio.open(GURS_TIF) as gurs_src:
             pv = p_v / p_sum
             pa = p_a / p_sum
 
-            # Calculate Shannon Entropy
+            # Shannon Entropy
             H = -(pu * np.log(pu + EPS) +
                   pv * np.log(pv + EPS) +
                   pa * np.log(pa + EPS))
@@ -221,7 +166,7 @@ with rasterio.open(GURS_TIF) as gurs_src:
                 desakota_mask * H_norm
             ) * pixel_area
 
-            # Calculate Fragmentation
+            # Fragmentation Calculation
             C = np.zeros_like(U, dtype=np.uint8)
             C[U == 1] = 1
             C[V == 1] = 2
@@ -237,6 +182,7 @@ with rasterio.open(GURS_TIF) as gurs_src:
                 desakota_mask * H_norm * frag_norm
             ) * pixel_area
 
+            # Use fixed 0.5 : 0.5 weight
             desakota_raw = 0.5 * desakota_mix_area + 0.5 * desakota_frag_area
 
             results.append({
@@ -247,11 +193,11 @@ with rasterio.open(GURS_TIF) as gurs_src:
 
 
 # =========================
-# Data Organization
+# Data Organization & Normalization
 # =========================
 df = pd.DataFrame(results)
 
-# Normalize index per window size group
+# Normalize index per window size
 df["Desakota_index"] = df.groupby("window")["Desakota_raw"].transform(
     lambda x: (x - x.min()) / (x.max() - x.min() + EPS)
 )
@@ -269,21 +215,12 @@ print("✔ Index calculation finished")
 mean_df = df.groupby("window")["Desakota_index"].mean().reset_index()
 
 plt.figure(figsize=(8, 5))
-
-plt.plot(
-    mean_df["window"],
-    mean_df["Desakota_index"],
-    marker="o"
-)
-
+plt.plot(mean_df["window"], mean_df["Desakota_index"], marker="o")
 plt.xlabel("Window Size")
 plt.ylabel("Mean Desakota Index")
-plt.title("Sensitivity of Desakota Index to Window Size")
-
+plt.title("Sensitivity of Desakota Index to Window Size (Crop Only)")
 plt.grid(True)
-
-#plt.savefig(OUT_CURVE, dpi=300, bbox_inches="tight")
-
+# plt.savefig(OUT_CURVE, dpi=300, bbox_inches="tight")
 plt.close()
 
 print("✔ Trend curve finished")
@@ -293,17 +230,12 @@ print("✔ Trend curve finished")
 # Boxplot Analysis
 # =========================
 plt.figure(figsize=(10, 6))
-
 df.boxplot(column="Desakota_index", by="window")
-
 plt.xlabel("Window Size")
 plt.ylabel("Desakota Index")
-plt.title("Sensitivity Analysis of Desakota Index")
-
+plt.title("Window Size Sensitivity Analysis (Crop Only)")
 plt.suptitle("")
-
-#plt.savefig(OUT_BOX, dpi=300, bbox_inches="tight")
-
+# plt.savefig(OUT_BOX, dpi=300, bbox_inches="tight")
 plt.close()
 
 print("✔ Boxplot finished")
@@ -312,10 +244,8 @@ print("✔ Boxplot finished")
 # =========================
 # City-wise Sensitivity Metrics
 # =========================
-# Calculate Standard Deviation to identify cities most sensitive to window changes
 city_std = df.groupby("city")["Desakota_index"].std()
-
-#city_std.to_csv(OUT_STD)
+# city_std.to_csv(OUT_STD)
 
 print("✔ City-wise sensitivity metrics finished")
 

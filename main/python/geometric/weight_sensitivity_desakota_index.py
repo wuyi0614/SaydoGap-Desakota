@@ -1,15 +1,14 @@
 import os
 import numpy as np
-import geopandas as gpd
-import rasterio
-from rasterio.mask import mask
-from rasterio.warp import reproject, Resampling
-from rasterio.features import rasterize
-from shapely.geometry import box
-from scipy.ndimage import uniform_filter
 import pandas as pd
 import matplotlib.pyplot as plt
+import geopandas as gpd
+import rasterio
 from pathlib import Path
+from rasterio.mask import mask
+from rasterio.warp import reproject, Resampling
+from shapely.geometry import box
+from scipy.ndimage import uniform_filter
 
 # =========================
 # Path Settings
@@ -18,12 +17,8 @@ PARENT_DIR = Path("data") / "replication_geometric"
 CITY_SHP_DIR = PARENT_DIR / "processed" / "urban_built-up_boundary"
 GURS_TIF = PARENT_DIR / "raw" / "global_urban_and_rural_settlement" / "GURS_SA_.tif"
 LUCC_DIR = PARENT_DIR / "raw" / "land_use"
-GREEN_SHP_DIR = PARENT_DIR / "raw" / "suburban_green_space"
-OUT_CSV = PARENT_DIR / "processed" / "desakota_index" / "Desakota_weight_sensitivity.csv"
 
-#OUT_CURVE = os.path.join(OUT_DIR, "weight_sensitivity_curve.png")
-#OUT_BOX = os.path.join(OUT_DIR, "weight_boxplot.png")
-#OUT_STD = os.path.join(OUT_DIR, "city_weight_sensitivity.csv")
+OUT_CSV = PARENT_DIR / "processed" / "desakota_index" / "Desakota_weight_sensitivity_crop_only.csv"
 
 # =========================
 # Parameters
@@ -39,25 +34,6 @@ WEIGHT_LIST = [
     (0.5, 0.5),
     (0.7, 0.3)
 ]
-
-# =========================
-# Build Green Space Mapping
-# =========================
-green_match = {}
-
-for f in os.listdir(GREEN_SHP_DIR):
-
-    if not f.lower().endswith(".shp"):
-        continue
-
-    name = os.path.splitext(f)[0]
-
-    if name == "N_Sembilan":
-        city_key = name
-    else:
-        city_key = name.replace("_", " ")
-
-    green_match[city_key] = os.path.join(GREEN_SHP_DIR, f)
 
 # =========================
 # Resampling Function
@@ -78,7 +54,6 @@ def resample_to_match(src_array, src_transform, src_crs,
         dst_crs=dst_crs,
         resampling=resampling
     )
-
     return dst
 
 
@@ -109,7 +84,6 @@ with rasterio.open(GURS_TIF) as gurs_src:
             continue
 
         city_gdf = gpd.read_file(shp_path)
-
         if city_gdf.empty:
             skipped.append(city)
             continue
@@ -142,10 +116,9 @@ with rasterio.open(GURS_TIF) as gurs_src:
         gurs = gurs[0]
 
         # =========================
-        # Mask LUCC and Resample
+        # Mask LUCC and Resample (Crop Only)
         # =========================
         with rasterio.open(lucc_path) as lucc_src:
-
             lucc_raw, lucc_transform = mask(lucc_src, geom, crop=True, nodata=0)
             lucc_raw = lucc_raw[0]
 
@@ -158,32 +131,8 @@ with rasterio.open(GURS_TIF) as gurs_src:
                 gurs_src.crs
             )
 
+        # Binary Agricultural mask (Crop Only)
         A = (A == 1).astype(np.uint8)
-
-        # =========================
-        # Process Green Space
-        # =========================
-        green_path = green_match.get(city, None)
-
-        if green_path and os.path.exists(green_path):
-
-            green_gdf = gpd.read_file(green_path)
-
-            if not green_gdf.empty:
-
-                green_gdf = green_gdf.to_crs(gurs_src.crs)
-
-                shapes = [(geom, 1) for geom in green_gdf.geometry]
-
-                green_raster = rasterize(
-                    shapes,
-                    out_shape=gurs.shape,
-                    transform=gurs_transform,
-                    fill=0,
-                    dtype=np.uint8
-                )
-
-                A = np.logical_or(A == 1, green_raster == 1).astype(np.uint8)
 
         # =========================
         # Land Cover Classification
@@ -192,12 +141,11 @@ with rasterio.open(GURS_TIF) as gurs_src:
         V = ((gurs == 2) & (A == 0)).astype(np.uint8)
 
         urban_area = U.sum() * pixel_area
-
         if urban_area == 0:
             continue
 
         # =========================
-        # Mixing Degree Calculation
+        # Mixing Degree Calculation (Shannon Entropy)
         # =========================
         p_u = uniform_filter(U.astype(float), WINDOW)
         p_v = uniform_filter(V.astype(float), WINDOW)
@@ -245,7 +193,6 @@ with rasterio.open(GURS_TIF) as gurs_src:
         # Sensitivity Analysis: Different Weight Scenarios
         # =========================
         for w_mix, w_frag in WEIGHT_LIST:
-
             desakota_raw = w_mix * desakota_mix_area + w_frag * desakota_frag_area
 
             results.append({
@@ -257,13 +204,13 @@ with rasterio.open(GURS_TIF) as gurs_src:
 
 
 # =========================
-# Data Organization
+# Data Organization & Normalization
 # =========================
 df = pd.DataFrame(results)
 
 df["weight_case"] = df["mix_weight"].astype(str) + "_" + df["frag_weight"].astype(str)
 
-# Normalize index per weight scenario group
+# Normalize per weight scenario
 df["Desakota_index"] = df.groupby("weight_case")["Desakota_raw"].transform(
     lambda x: (x - x.min()) / (x.max() - x.min() + EPS)
 )
@@ -280,20 +227,12 @@ print("✔ Index calculation finished")
 mean_df = df.groupby("weight_case")["Desakota_index"].mean().reset_index()
 
 plt.figure(figsize=(8, 5))
-
-plt.plot(
-    mean_df["weight_case"],
-    mean_df["Desakota_index"],
-    marker="o"
-)
-
+plt.plot(mean_df["weight_case"], mean_df["Desakota_index"], marker="o")
 plt.xlabel("Weight Scenario (mix_frag)")
 plt.ylabel("Mean Desakota Index")
-plt.title("Sensitivity of Desakota Index to Weight Settings")
-
+plt.title("Sensitivity of Desakota Index to Weight Settings (Crop Only)")
 plt.grid(True)
-
-#plt.savefig(OUT_CURVE, dpi=300, bbox_inches="tight")
+# plt.savefig(OUT_CURVE, dpi=300, bbox_inches="tight")
 plt.close()
 
 print("✔ Trend curve finished")
@@ -302,29 +241,23 @@ print("✔ Trend curve finished")
 # Boxplot Analysis
 # =========================
 plt.figure(figsize=(10, 6))
-
 df.boxplot(column="Desakota_index", by="weight_case")
-
 plt.xlabel("Weight Scenario")
 plt.ylabel("Desakota Index")
-plt.title("Weight Sensitivity Analysis")
-
+plt.title("Weight Sensitivity Analysis (Crop Only)")
 plt.suptitle("")
-
-#plt.savefig(OUT_BOX, dpi=300, bbox_inches="tight")
+# plt.savefig(OUT_BOX, dpi=300, bbox_inches="tight")
 plt.close()
 
 print("✔ Boxplot finished")
 
 # =========================
-# City-wise Sensitivity Metrics
+# City-wise Sensitivity
 # =========================
-# Calculate Standard Deviation to identify cities most sensitive to weight changes
 city_std = df.groupby("city")["Desakota_index"].std()
-
-#city_std.to_csv(OUT_STD)
+# city_std.to_csv(OUT_STD)
 
 print("✔ City-wise sensitivity metrics finished")
 
 print("\nAll tasks completed.")
-print("Skipped:", skipped)
+print("Skipped cities:", skipped)
