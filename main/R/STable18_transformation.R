@@ -11,8 +11,8 @@
 # Input:  data/MergedPanel.csv
 # Output: data/IncludingLogData.csv  (transformed dataset)
 #         data/replication_supplementary/STable18_Diagnosis_Results.csv
-#         figures/raw/STable18_Diagnosis_Results.png
-#         figures/raw/SFig5_Distribution_Diagnosis_shifted_log.png
+#         results/png/STable18_Diagnosis_Results.png
+#         results/png/SFig5_Distribution_Diagnosis_shifted_log.png
 #
 # NOTE: This script MUST run before Figure4, Figure5, SFig4, STable8.
 # ==============================================================================
@@ -36,15 +36,19 @@ suppressPackageStartupMessages({
 })
 
 # Base paths for file I/O (no setwd)
-base_path  <- "data"
-pics_path  <- "figures"
+base_path <- "data"
+PNG_DIR   <- "results/png"
+CSV_DIR   <- "results/csv"
+dir.create(PNG_DIR, showWarnings = FALSE, recursive = TRUE)
+dir.create(CSV_DIR, showWarnings = FALSE, recursive = TRUE)
 
 
 # ==============================================================================
 # SECTION 1: DATA LOADING & FEATURE ENGINEERING
 # ==============================================================================
 
-df <- read.csv(file.path(base_path, "MergedPanelV5.csv")) %>%
+df <- read.csv(file.path(base_path, "MergedPanel.csv")) %>%
+  filter(city != "Other") %>%  # Exclude Other due to missing geo data 
   mutate(country = Country) %>%
   mutate(
     # --- GROCERY DOMAIN ---
@@ -60,7 +64,7 @@ df <- read.csv(file.path(base_path, "MergedPanelV5.csv")) %>%
     RB_Electronic_LPM = reportMonthlyGreenElectronic_LPM - greenSpendingShareElectronic_LPM
   )
 
-
+colnames(df)
 # ==============================================================================
 # SECTION 2: TRANSFORMATION REGISTRY
 # ==============================================================================
@@ -103,15 +107,15 @@ skew_threshold <- 1.5
 # Variables to diagnose
 vars_to_check <- c(
   "Coastal.Accessibility",
-  "Green.Space.Accessibility_within_300m",
-  "Green.Space.Accessibility_within_500m",
+  "Park.Accessibility_within_300m",
+  "Park.Accessibility_within_500m",
   "Blue.Exposure.Index",
   "Patch.Density",
   "Largest.Patch.Index",
   "Patch.Dispersion.Index",
   "Green.Exposure.Index",
-  "Green.Space.Proportion",
-  "Per.Capita.Green.Space",
+  "Park.Proportion",
+  "Per.Capita.Park",
   "crop_Land",
   "Desakota_Index_CropOnly",
   "Desakota_Index_CropAndGreen",
@@ -201,8 +205,7 @@ for (v in vars_to_transform) {
 }
 
 # ---- Export transformed dataset ----
-write.csv(df, file.path(pics_path, "data/supplementary/IncludingLogData.csv"), row.names = FALSE)
-cat("\nTransformed dataset saved → ", file.path(pics_path, "data/supplementary/IncludingLogData.csv"), "\n")
+write.csv(df, "data/IncludingLogData.csv", row.names = FALSE)
 
 # ---- Before vs After comparison ----
 if (length(vars_to_transform) > 0) {
@@ -248,9 +251,11 @@ colnames(diag_display) <- c(
 )
 
 # ---- Export: CSV ----
-csv_path <- file.path(pics_path, "data/supplementary/STable18_Diagnosis_Results.csv")
-write.csv(diag_results, csv_path, row.names = FALSE)
-cat("\nDiagnosis table saved → ", csv_path, "\n")
+write.csv(diag_results,
+          file.path(CSV_DIR, "STable18_Diagnosis_Results.csv"),
+          row.names = FALSE)
+cat("Diagnosis table (CSV) saved →", file.path(CSV_DIR, "STable18_Diagnosis_Results.csv"), "\n")
+# cat("\nDiagnosis table saved → ", csv_path, "\n")
 
 # ---- Theme helper ----
 apply_gt_theme <- function(gt_obj, tbl_width = pct(100)) {
@@ -358,9 +363,9 @@ gt_tbl <- gt_tbl %>%
 #   ))
 
 # ---- Export: PNG ----
-png_path <- file.path(pics_path, "figures/raw/STable18_Diagnosis_Results.png")
+png_path <- file.path(PNG_DIR, "STable18_Diagnosis_Results.png")
 gtsave(gt_tbl, filename = png_path, expand = 10)
-cat("Diagnosis table (PNG) saved → ", png_path, "\n")
+cat("Diagnosis table (PNG) saved →", png_path, "\n")
 
 
 # ==============================================================================
@@ -466,7 +471,7 @@ if (n_panels > 0) {
   fig_w <- 180
   fig_h <- max(60 * nrows, 100)
   
-  plot_fname <- file.path(pics_path, "figures/raw",
+  plot_fname <- file.path(PNG_DIR,
                           paste0("SFig5_Distribution_Diagnosis_", active_transform, ".png"))
   
   ggsave(
@@ -485,3 +490,4 @@ if (n_panels > 0) {
 } else {
   cat("\nNo variables required transformation — no distribution plots generated.\n")
 }
+

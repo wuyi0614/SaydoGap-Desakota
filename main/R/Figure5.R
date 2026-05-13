@@ -9,8 +9,8 @@
 #   Panel 5c (pie charts): Zone composition
 #
 # Input:  data/IncludingLogData.csv
-# Output: figures/raw/Figure5_Zonal_Master_{DOMAIN}.png
-#         figures/raw/Figure5_Zonal_Master_{DOMAIN}.svg
+# Output: results/png/Figure5_Zonal_Master_{DOMAIN}.png
+#         results/png/Figure5_Zonal_Master_{DOMAIN}.svg
 #
 # Dependency: Run STable18_tranformation.R first (generates input CSV).
 ################################################################################
@@ -54,12 +54,6 @@ dv <- domain_vars[[DOMAIN]]
 
 df <- read.csv("data/IncludingLogData.csv")
 
-# Remove aggregate rows that are not real cities
-df <- df %>%
-  filter(!grepl("&", city),
-         !grepl("(?i)^other$", city, perl = TRUE),
-         !is.na(city), city != "")
-
 # Compute LPM gap columns
 df <- df %>%
   mutate(
@@ -72,11 +66,9 @@ df <- df %>%
 # ── Panel 5a & 5c sample: only spatial indices required ──────────────────────
 spatial_vars <- c("Green.Exposure.Index", "Desakota_Index_CropOnly_log")
 meta_vars    <- c("city", "country", "isCapitalCity")
-
 df_spatial <- df %>%
   dplyr::select(all_of(c(meta_vars, spatial_vars))) %>%
   tidyr::drop_na()
-
 cat("\n=======================================================\n")
 cat("Panel 5a & 5c sample (spatial only): N =", nrow(df_spatial), "\n")
 
@@ -372,14 +364,19 @@ composite_final <- cowplot::plot_grid(
   rel_heights = c(10, 1)
 )
 
+PNG_DIR <- "results/png"
+SVG_DIR <- "results/svg"
+dir.create(PNG_DIR, showWarnings = FALSE, recursive = TRUE)
+dir.create(SVG_DIR, showWarnings = FALSE, recursive = TRUE)
+
 ggsave(
-  paste0("figures/raw/Figure5_Zonal_Master_", DOMAIN, ".png"),
+  file.path(PNG_DIR, paste0("Figure5_Zonal_Master_", DOMAIN, ".png")),
   composite_final,
   width = 16, height = 10, units = "in", dpi = 600
 )
 
 ggsave(
-  paste0("figures/raw/Figure5_Zonal_Master_", DOMAIN, ".svg"),
+  file.path(SVG_DIR, paste0("Figure5_Zonal_Master_", DOMAIN, ".svg")),
   composite_final,
   width = 16, height = 10, units = "in"
 )

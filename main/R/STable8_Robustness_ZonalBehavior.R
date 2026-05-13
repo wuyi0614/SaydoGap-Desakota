@@ -9,7 +9,7 @@
 #
 # Input:  data/IncludingLogData.csv
 # Output: data/replication_supplementary/STable8_Robustness_ZonalBehavior.csv
-#         figures/raw/STable8_Robustness_ZonalBehavior.png
+#         results/png/STable8_Robustness_ZonalBehavior.png
 #
 # Dependency: Run STable18_tranformation.R first (generates input CSV).
 ################################################################################
@@ -48,10 +48,6 @@ metric_levels <- c("Reported Gap", "Reporting Bias", "Observed Market Behavior")
 
 df_raw <- read.csv("data/IncludingLogData.csv")
 
-df_raw <- df_raw %>%
-  filter(!grepl("&", city),
-         !grepl("(?i)^other$", city, perl = TRUE),
-         !is.na(city), city != "")
 
 # Compute all gap columns (both frameworks, both domains)
 df_raw <- df_raw %>%
@@ -70,7 +66,6 @@ df_raw <- df_raw %>%
 df_spatial <- df_raw %>%
   dplyr::select(all_of(c(meta_vars, spatial_vars))) %>%
   drop_na()
-
 classify_zones <- function(data, cols_to_z) {
   data[cols_to_z] <- lapply(data[cols_to_z], function(x) as.numeric(scale(x)))
   data %>%
@@ -135,8 +130,13 @@ df_results <- bind_rows(results)
 # Save long-format CSV
 # ══════════════════════════════════════════════════════════════════════════════
 
+CSV_DIR <- "results/csv"
+PNG_DIR <- "results/png"
+dir.create(CSV_DIR, showWarnings = FALSE, recursive = TRUE)
+dir.create(PNG_DIR, showWarnings = FALSE, recursive = TRUE)
+
 write.csv(df_results,
-          "data/supplementary/STable8_Robustness_ZonalBehavior.csv",
+          file.path(CSV_DIR, "STable8_Robustness_ZonalBehavior.csv"),
           row.names = FALSE)
 cat("Long CSV saved.\n")
 
@@ -246,7 +246,7 @@ gt_tbl <- df_wide %>%
 
 # Save as PNG
 gtsave(gt_tbl,
-       "figures/raw/STable8_Robustness_ZonalBehavior.png",
+       file.path(PNG_DIR, "STable8_Robustness_ZonalBehavior.png"),
        expand = 20)
 
 cat("Table PNG saved.\n")

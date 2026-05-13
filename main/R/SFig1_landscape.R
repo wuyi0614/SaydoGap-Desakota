@@ -6,20 +6,16 @@
 #   mirroring the Grocery map in Figure 1 Panel B.
 #
 # Input:  None (uses in-memory objects from Figure1.R)
-# Output: figures/raw/SFig1_landscape.png, figures/raw/SFig1_landscape.svg
+# Output: results/png/SFig1_landscape.png, results/png/SFig1_landscape.svg
 #
 # Dependency: Run Figure1.R (sections 1-2) first in the SAME R session.
-#   Required objects:
-#     - df                      (master data frame)
-#     - df_landscape_electronic (from build_landscape_wide())
-#     - theme_pub()             (custom ggplot2 theme)
-#     - coords_matched          (city coordinates from GeoIndex_V6.xlsx)
 ################################################################################
 
 # ── Output directories ────────────────────────────────────────────────────────
-out_dir <- "figures/raw"
-dir.create(file.path(out_dir, "png"), showWarnings = FALSE, recursive = TRUE)
-dir.create(file.path(out_dir, "svg"), showWarnings = FALSE, recursive = TRUE)
+PNG_DIR <- "results/png"
+SVG_DIR <- "results/svg"
+dir.create(PNG_DIR, showWarnings = FALSE, recursive = TRUE)
+dir.create(SVG_DIR, showWarnings = FALSE, recursive = TRUE)
 
 ################################################################################
 # build_panel_C() — identical to the version in 1Green_Illusion.R
@@ -166,15 +162,16 @@ print(panel_B_electronic)
 ################################################################################
 
 ggsave(
-  filename = file.path(out_dir, "SFig1_landscape.png"),
+  filename = file.path(PNG_DIR, "SFig1_landscape.png"),
   plot     = panel_B_electronic,
   width    = 180, height = 110, units = "mm",
   dpi      = 600, bg = "white"
 )
 
 ggsave(
-  filename = file.path(out_dir, "SFig1_landscape.svg"),
+  filename = file.path(SVG_DIR, "SFig1_landscape.svg"),
   plot     = panel_B_electronic,
   width    = 180, height = 110, units = "mm",
   device   = svglite, bg = "white"
 )
+

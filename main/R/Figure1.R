@@ -12,7 +12,7 @@
 #     (size = BPN Reporting Bias, color = LPM Reporting Bias).
 #
 # Input:  data/MergedPanel.csv, data/GeoIndex.xlsx
-# Output: figures/raw/Figure1_GreenIllusion.png, figures/raw/Figure1_GreenIllusion.svg
+# Output: results/png/Figure1_GreenIllusion.png, results/png/Figure1_GreenIllusion.svg
 ################################################################################
 rm(list = ls())
 library(dplyr)
@@ -25,12 +25,36 @@ library(rnaturalearthdata)
 library(sf)
 if (requireNamespace("spdep", quietly = TRUE)) library(spdep)
 library(svglite)
-df <- read.csv("data/MergedPanelV5.csv") %>%
-  mutate(country=Country)
+library(this.path)
 
-# ── Output directory ─────────────────────────────────────────────────────────
-out_dir <- "figures/raw"
-dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+# set working directory to project root (adjust as needed)
+setwd(file.path(this.dir(), "../.."))
+
+df <- read.csv("data/MergedPanel.csv") %>% 
+  mutate(latitude=Latitude,longitude=Longitude) %>% 
+  filter(city != "Other")  # Exclude Other due to missing geo data 
+  
+## Simple summary for all variables
+cat("========== NA / Non-NA Counts for All Variables ==========\n\n")
+
+na_summary <- data.frame(
+  Variable = names(df),
+  Total_Observations = nrow(df),
+  NA_Count = sapply(df, function(x) sum(is.na(x))),
+  Non_NA_Count = sapply(df, function(x) sum(!is.na(x))),
+  NA_Percentage = sapply(df, function(x) mean(is.na(x)) * 100)
+) 
+# %>% filter(NA_Count > 0)  # Only show variables with at least one NA
+# Sort by NA percentage (highest first)
+na_summary <- na_summary[order(-na_summary$NA_Percentage), ]
+print(na_summary)
+
+
+# ── Output directories ───────────────────────────────────────────────────────
+PNG_DIR <- "results/png"
+SVG_DIR <- "results/svg"
+dir.create(PNG_DIR, showWarnings = FALSE, recursive = TRUE)
+dir.create(SVG_DIR, showWarnings = FALSE, recursive = TRUE)
 
 ################################################################################
 # 1. GRAPH THEME
@@ -122,6 +146,7 @@ process_domain_data <- function(data, domain_name) {
 df_grocery    <- process_domain_data(df, "Grocery")
 df_electronic <- process_domain_data(df, "Electronic")
 df_landscape  <- bind_rows(df_grocery, df_electronic)
+ 
 
 # Long format for cascade
 df_cascade_long <- df_landscape %>%
@@ -188,16 +213,6 @@ build_landscape_wide <- function(data, domain) {
 
 df_landscape_grocery    <- build_landscape_wide(df, "Grocery")
 df_landscape_electronic <- build_landscape_wide(df, "Electronic")
-
-# ── 2c. Merge coordinates (adjust path to your coordinate file) ─────────────
-coords_matched <- readxl::read_excel("data/GeoIndexV6.xlsx") %>%
-  mutate(country = Country, latitude = Latitude, longitude = Longitude) %>%
-  dplyr::select(city, country, latitude, longitude)
-
-df_landscape_grocery <- df_landscape_grocery %>%
-  left_join(coords_matched, by = c("city", "country"))
-df_landscape_electronic <- df_landscape_electronic %>%
-  left_join(coords_matched, by = c("city", "country"))
 
 
 ################################################################################
@@ -472,11 +487,11 @@ print(composite)
 # 6. SAVE OUTPUTS
 ################################################################################
 
-ggsave(file.path(out_dir, "Figure1_GreenIllusion.png"),
+ggsave(file.path(PNG_DIR, "Figure1_GreenIllusion.png"),
        composite, width = 180, height = 200, units = "mm",
        dpi = 600, bg = "white")
 
-ggsave(file.path(out_dir, "Figure1_GreenIllusion.svg"),
+ggsave(file.path(SVG_DIR, "Figure1_GreenIllusion.svg"),
        composite, width = 180, height = 200, units = "mm",
        device = svglite, bg = "white")
 

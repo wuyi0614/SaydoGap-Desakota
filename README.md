@@ -10,6 +10,7 @@ This repository contains the data and Python & R codes to reproduce all figures,
 SAYDOGAP-DESAKOTA/
 ├── main/                                                                  # Root script folder
 │   ├── python/                                                            # Python codes
+│      ├── dataset.py                                                      # Codes for the generation of final panels for further analysis
 │      ├── survey/
 │         ├── __init__.py                                                  # Supportive file for intra-module calling
 │         ├── config.py                                                    # Configurations and parameters for survey processing
@@ -21,9 +22,6 @@ SAYDOGAP-DESAKOTA/
 │         ├── classification.py                                            # Green product classification pipeline
 │         ├── preprocessing.py                                             # Preprocessing for product data, return three panels: buyer, survey, city
 │         └── stopwords.txt                                                # Customized stopwords for preprocessing
-│      ├── analysis/
-│         ├── run.py                                                       # Run integrated panels with geo & gap metrics
-│         └── Figure3.py                                                   # Create Figure 3: the waterfall chart in the main text
 │      ├── geometric/
 │         ├── __init__.py                                                  # Supportive file for intra-module calling
 │         ├── blue_exposure_index.py                                       # Codes for the blue exposure index

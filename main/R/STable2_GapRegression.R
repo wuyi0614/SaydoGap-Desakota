@@ -10,18 +10,11 @@
 #   Total: 2 x 2 x 2 = 8 regressions, displayed in a combined table.
 #
 # Input:  data/MergedPanel.csv
-# Output: figures/raw/STable2_CTNGapRegression.png
+# Output: results/png/STable2_CTNGapRegression.png
 # =============================================================================
 rm(list=ls())
 
-df <- read.csv("data/MergedPanel.csv") %>%
-  mutate(country=Country,
-         isIslam = case_when(
-           Main.religion == "Islam" ~ 1,
-           TRUE ~ 0),
-         isChristian = case_when(
-           Main.religion == "Christianity" ~ 1,
-           TRUE ~ 0))
+df <- read.csv("data/MergedPanel.csv") %>% filter(city != "Other")  # Exclude Other due to missing geo data 
 
 library(dplyr)
 library(broom)        # For tidy() and glance()
@@ -53,7 +46,7 @@ df_gaps <- df %>%
 # ==============================================================================
 
 predictor_var <- "genGreenConnectness"
-control_vars  <- c("GDP_per", "onlineShoppingExperience", "isHighEdu","socialMediaHrs","Main.religion","country")
+control_vars  <- c("GDP_per", "onlineShoppingExperience", "isHighEdu","socialMediaHrs","country")
 formula_rhs   <- paste(c(predictor_var, control_vars), collapse = " + ")
 
 # Clean labels for display 
@@ -64,7 +57,6 @@ var_labels <- c(
   "onlineShoppingExperience" = "Online Shopping Exp.",
   "isHighEdu"                = "High Education",
   "socialMediaHrs"           = "Social Media Hrs",
-  "Main.religion"            = "Main Religion",
   "Desakota_Index_CropOnly_log" = "Desakota",
   "country"                   = "Country"
 )
@@ -145,6 +137,9 @@ for (v in terms) {
   rows_list[[length(rows_list) + 1]] <- ci_row
 }
 coef_df <- bind_rows(rows_list)
+
+# save coef_df for figure 3 calculation
+write.csv(coef_df, "data/CTN_GapRegression_Coefficients.csv", row.names = FALSE)
 
 # --- 4e. Extract goodness-of-fit ---
 extract_gof <- function(model) {
@@ -261,4 +256,6 @@ save_regression_png <- function(tab_kable, filename = "CombinedRegressionTable.p
 }
 
 # Call the function
-save_regression_png(tab, "figures/raw/STable2_CTNGapRegression.png")
+PNG_DIR <- "results/png"
+dir.create(PNG_DIR, showWarnings = FALSE, recursive = TRUE)
+save_regression_png(tab, file.path(PNG_DIR, "STable2_CTNGapRegression.png"))

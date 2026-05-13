@@ -12,8 +12,8 @@
 # Input:  data/CityPanelSensitivity49Scenarios.csv (wide-format)
 #         data/MergedPanel.csv (for coordinates)
 #         data/GeoIndex.xlsx (city lat/lon)
-# Output: figures/raw/SFig2_LPM_Sensitivity.png
-#         figures/raw/SFig2_LPM_Sensitivity.svg
+# Output: results/png/SFig2_LPM_Sensitivity.png
+#         results/png/SFig2_LPM_Sensitivity.svg
 #         data/supplementary/STable_LPM_Sensitivity.csv
 ################################################################################
 
@@ -41,10 +41,9 @@ library(svglite)
 ##   120 base columns + x0, k (both as integer percentages)
 ################################################################################
 df_wide <- read.csv("data/CityPanelSensitivity49Scenarios.csv",
-                    check.names = FALSE)
+                    check.names = FALSE) %>% filter(city != "Other")  # Exclude Other due to missing geo data 
 
-# Harmonize city names: wide file uses spaces, other files use underscores
-df_wide$city <- gsub(" ", "_", df_wide$city)
+
 
 all_cols <- colnames(df_wide)
 
@@ -103,16 +102,15 @@ cat(sprintf("Scenarios: %d (1 baseline + %d sensitivity)\n",
             nrow(scenarios_grid) + 1, nrow(scenarios_grid)))
 
 # ── Load coordinates ─────────────────────────────────────────────────────────
-df <- read.csv("data/MergedPanel.csv") %>%
-  mutate(country = Country)
-
-coords_matched <- readxl::read_excel("data/GeoIndex.xlsx") %>%
+coords_matched <- read.csv("data/MergedPanel.csv") %>% 
   mutate(country = Country, latitude = Latitude, longitude = Longitude) %>%
-  dplyr::select(city, country, latitude, longitude)
+  select(city, country, latitude, longitude)
 
-# ── Output directory ─────────────────────────────────────���───────────────────
-out_dir <- "figures/raw"
-# dir.create(file.path(out_dir, "png"), showWarnings = FALSE, recursive = TRUE)
+# ── Output directories ───────────────────────────────────────────────────────
+PNG_DIR <- "results/png"
+SVG_DIR <- "results/svg"
+dir.create(PNG_DIR, showWarnings = FALSE, recursive = TRUE)
+dir.create(SVG_DIR, showWarnings = FALSE, recursive = TRUE)
 
 
 ################################################################################
@@ -487,92 +485,15 @@ panel_B <- (panel_B1 | panel_B2) +
 
 composite <- (panel_A / panel_B) +
   plot_layout(heights = c(0.45, 0.55)) 
-  # +plot_annotation(
-  #   title    = "Supplementary Figure: LPM Parameter Sensitivity Analysis",
-  #   subtitle = paste0(
-  #     "Panels a\u2013b: Cascade envelope across all (x\u2080, k) scenarios ",
-  #     "(\u00b110%, \u00b120%, \u00b130%). Shaded band = min\u2013max range; ",
-  #     "bold line = baseline.\n",
-  #     "Panels c\u2013d: Moran\u2019s I heatmap for Reporting Bias spatial clustering. ",
-  #     "Red border = baseline. * p<0.05, ** p<0.01, *** p<0.001."
-  #   ),
-  #   theme = theme(
-  #     plot.title    = element_text(size = 9, face = "bold", family = "Arial"),
-  #     plot.subtitle = element_text(size = 6.5, color = "grey35", family = "Arial",
-  #                                  lineheight = 1.3),
-  #     plot.margin   = ggplot2::margin(6, 4, 6, 4)
-  #   )
-  # )
-
 print(composite)
 
 # Save outputs
-ggsave(file.path(out_dir, "SFig2_LPM_Sensitivity.png"),
+ggsave(file.path(PNG_DIR, "SFig2_LPM_Sensitivity.png"),
        composite, width = 180, height = 200, units = "mm",
        dpi = 600, bg = "white")
 
-# dir.create(file.path(out_dir, "svg"), showWarnings = FALSE, recursive = TRUE)
-ggsave(file.path(out_dir, "SFig2_LPM_Sensitivity.svg"),
+ggsave(file.path(SVG_DIR, "SFig2_LPM_Sensitivity.svg"),
        composite, width = 180, height = 200, units = "mm",
        device = svglite, bg = "white")
 
-cat("Supplementary figure saved.\n")
 
-
-################################################################################
-# 8. SUPPLEMENTARY TABLE: FULL SENSITIVITY RESULTS
-################################################################################
-
-results_export <- results_df %>%
-  mutate(
-    sig_label = case_when(
-      moran_p < 0.001 ~ "***",
-      moran_p < 0.01  ~ "**",
-      moran_p < 0.05  ~ "*",
-      TRUE            ~ "n.s."
-    )
-  ) %>%
-  dplyr::select(
-    domain, x0_pct, k_pct, x0_value, k_value,
-    Intention, Reported, Observed,
-    Gap1_SaySay, Gap2_SayDo, Total_Attrition_Pct,
-    moran_I, moran_p, sig_label
-  ) %>%
-  arrange(domain, x0_pct, k_pct)
-
-write.csv(results_export,
-          file.path("data/replication_supplementary", "SFig2_LPM_Sensitivity.csv"),
-          row.names = FALSE)
-
-cat("Supplementary table saved.\n")
-
-
-################################################################################
-# 9. SUMMARY STATISTICS (printed to console)
-################################################################################
-
-cat("\n================================================================\n")
-cat("SENSITIVITY ANALYSIS SUMMARY\n")
-cat("================================================================\n\n")
-
-for (dom in c("Grocery", "Electronic")) {
-  d <- results_df %>% filter(domain == dom)
-  b <- d %>% filter(x0_pct == 0 & k_pct == 0)
-  
-  cat(sprintf("-- %s -----------------------------------------\n", dom))
-  cat(sprintf("  Baseline:  Intention=%.3f  Reported=%.3f  Observed=%.3f\n",
-              b$Intention, b$Reported, b$Observed))
-  cat(sprintf("  Baseline Attrition: %.1f%%\n", b$Total_Attrition_Pct))
-  cat(sprintf("  Attrition range:    [%.1f%% - %.1f%%]\n",
-              min(d$Total_Attrition_Pct), max(d$Total_Attrition_Pct)))
-  cat(sprintf("  Baseline Moran's I: %.4f (p = %.4f)\n",
-              b$moran_I, b$moran_p))
-  cat(sprintf("  Moran's I range:    [%.4f - %.4f]\n",
-              min(d$moran_I, na.rm = TRUE), max(d$moran_I, na.rm = TRUE)))
-  n_sig <- sum(d$moran_p < 0.05, na.rm = TRUE)
-  cat(sprintf("  Significant (p<0.05): %d / %d scenarios (%.0f%%)\n\n",
-              n_sig, nrow(d), n_sig / nrow(d) * 100))
-}
-
-cat("================================================================\n")
-cat("DONE.\n")

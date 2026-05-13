@@ -8,9 +8,9 @@
 #
 # Input:  In-memory objects from Figure4.R (same R session)
 # Output: data/supplementary/STable6_ModelComparison.csv
-#         figures/raw/STable6_ModelComparison.png
+#         results/png/STable6_ModelComparison.png
 #         data/replication_supplementary/STable7_GAM_TurningPoints.csv
-#         figures/raw/STable7_GAM_TurningPoints.png
+#         results/png/STable7_GAM_TurningPoints.png
 #
 # Dependency: Run Figure4.R first in the SAME R session.
 #   Required objects: df_z, df_plot_b, col_green, col_desakota
@@ -31,12 +31,13 @@ library(gt)
 library(dplyr)
 # mgcv is already loaded via Figure4.R
 
-out_dir <- "figures/raw"
-# dir.create(file.path(out_dir, "png"), showWarnings = FALSE, recursive = TRUE)
-# dir.create(file.path(out_dir, "csv"), showWarnings = FALSE, recursive = TRUE)
+PNG_DIR <- "results/png"
+CSV_DIR <- "results/csv"
+dir.create(PNG_DIR, showWarnings = FALSE, recursive = TRUE)
+dir.create(CSV_DIR, showWarnings = FALSE, recursive = TRUE)
 
 controls <- c("GDP_per", "onlineShoppingExperience", "isHighEdu",
-              "socialMediaHrs", "Main.religion", "country")
+              "socialMediaHrs", "country")
 
 panel_combos <- expand.grid(
   Domain       = c("Grocery", "Electronics"),
@@ -72,7 +73,6 @@ cat("==================================================================\n\n")
 #   df_plot_b already contains all control variables as columns — it is the
 #   wide-then-pivoted frame produced by Figure4.R, which carries every column
 #   from df_z plus the long-format panel columns (Domain, SpatialLabel, etc.).
-#   No join is required; we simply use df_plot_b directly.
 # ==============================================================================
 
 ctrl_cols   <- controls[controls %in% names(df_plot_b)]
@@ -81,8 +81,9 @@ missing_ctrl <- controls[!controls %in% names(df_plot_b)]
 df_analysis <- df_plot_b
 
 cat(sprintf("Controls found in df_plot_b : %s\n", paste(ctrl_cols,   collapse = ", ")))
-if (length(missing_ctrl) > 0)
-  cat(sprintf("Controls NOT found          : %s\n", paste(missing_ctrl, collapse = ", ")))
+if (length(missing_ctrl) > 0) {
+  cat(sprintf("Controls NOT found: %s\n", paste(missing_ctrl, collapse = ", ")))
+}
 cat(sprintf("Analysis rows               : %d\n\n", nrow(df_analysis)))
 
 
@@ -345,7 +346,7 @@ apply_gt_theme <- function(gt_obj, tbl_width = pct(100)) {
 
 
 # ==============================================================================
-# SECTION 4  Fit models -- collect rows for Table 1 and turning points for Table 2
+# SECTION 4  Fit models -- collect rows for Table 6 and turning points for Table 7
 # ==============================================================================
 
 model_rows   <- list()
@@ -365,15 +366,14 @@ for (i in seq_len(nrow(panel_combos))) {
   
   # 4b. Determine safe controls for this slice --------------------------------
   ctrl_rhs <- safe_controls(d, controls)
-  cat(sprintf("   Controls used: %s\n",
-              if (is.null(ctrl_rhs)) "none (all dropped)" else ctrl_rhs))
+
   
   # 4c. Fit OLS, Tobit, GAM ---------------------------------------------------
   ols   <- fit_ols_(d, ctrl_rhs)
   tob   <- fit_tobit_(d, ctrl_rhs)
   gam_r <- fit_gam_(d, ctrl_rhs)
   
-  # 4d. Collect Table 1 row ---------------------------------------------------
+  # 4d. Collect Table 6 row ---------------------------------------------------
   model_rows[[i]] <- data.frame(
     Domain         = dom,
     Spatial_Index  = spl,
@@ -403,7 +403,7 @@ for (i in seq_len(nrow(panel_combos))) {
     stringsAsFactors = FALSE
   )
   
-  # 4e. GAM turning points for Table 2 ----------------------------------------
+  # 4e. GAM turning points for Table 7 ----------------------------------------
   tp <- gam_turning_points_(d, gam_r$fit)
   if (!is.null(tp)) {
     extrema_rows[[length(extrema_rows) + 1]] <-
@@ -412,7 +412,6 @@ for (i in seq_len(nrow(panel_combos))) {
   }
 }
 
-cat("\nAll models fitted.\n\n")
 
 
 # ==============================================================================
@@ -448,9 +447,9 @@ csv_t1 <- supp_t1 %>%
     GAM_R2, GAM_AIC, GAM_logLik
   )
 write.csv(csv_t1,
-          file.path("data/replication_supplementary", "STable6_ModelComparison.csv"),
+          file.path(CSV_DIR, "STable6_ModelComparison.csv"),
           row.names = FALSE)
-cat("Supplementary Table 1 CSV saved.\n")
+cat("Supplementary Table 6 CSV saved.\n")
 
 # 5c. PNG ----------------------------------------------------------------------
 t1_display <- supp_t1 %>%
@@ -462,7 +461,7 @@ t1_display <- supp_t1 %>%
 gt_t1 <- t1_display %>%
   gt() %>%
   tab_header(
-    title = md("**Supplementary Table 1.** OLS, Tobit, and GAM Model Comparison")
+    title = md("**Supplementary Table 6.** OLS, Tobit, and GAM Model Comparison")
   ) %>%
   tab_spanner(label   = md("**OLS**"),
               columns = c(OLS_beta_sig, OLS_SE, OLS_R2, OLS_AIC, OLS_logLik)) %>%
@@ -514,17 +513,17 @@ gt_t1 <- t1_display %>%
   ))) %>%
   apply_gt_theme(tbl_width = pct(100))
 
-png_t1 <- file.path(out_dir, "STable6_ModelComparison.png")
+png_t1 <- file.path(PNG_DIR, "STable6_ModelComparison.png")
 gtsave(gt_t1, filename = png_t1, zoom = 2, expand = 20)
-cat("Supplementary Table 1 PNG saved.\n\n")
+cat("Supplementary Table 6 PNG saved.\n\n")
 
 
 # ==============================================================================
-# SECTION 6  Supplementary Table 2 -- GAM Turning Points -- console, CSV, PNG
+# SECTION 6  Supplementary Table 7 -- GAM Turning Points -- console, CSV, PNG
 # ==============================================================================
 
 cat("==========================================================================\n")
-cat("Supplementary Table 2: GAM Turning Points (Extrema)\n")
+cat("Supplementary Table 7: GAM Turning Points (Extrema)\n")
 cat("Values in z-score units (standardised within the analysis sample)\n")
 cat("==========================================================================\n")
 
@@ -545,14 +544,14 @@ if (length(extrema_rows) > 0) {
   
   # 6c. CSV --------------------------------------------------------------------
   write.csv(supp_t2,
-            file.path("data/replication_supplementary", "STable7_GAM_TurningPoints.csv"),
+            file.path(CSV_DIR, "STable7_GAM_TurningPoints.csv"),
             row.names = FALSE)
-  cat("\nSupplementary Table 2 CSV saved.\n")
+  cat("\nSupplementary Table 7 CSV saved.\n")
   
   # 6d. PNG --------------------------------------------------------------------
   gt_t2 <- supp_t2 %>%
     gt() %>%
-    tab_header(title = md("**Supplementary Table 2.** GAM Turning Points")) %>%
+    tab_header(title = md("**Supplementary Table 7.** GAM Turning Points")) %>%
     cols_label(
       Domain        = "Domain",
       Spatial_Index = md("Spatial Index"),
@@ -579,14 +578,14 @@ if (length(extrema_rows) > 0) {
     ))) %>%
     apply_gt_theme(tbl_width = pct(70))
   
-  png_t2 <- file.path(out_dir, "Supplementary_Table2_GAM_TurningPoints.png")
+  png_t2 <- file.path(PNG_DIR, "STable7_GAM_TurningPoints.png")
   gtsave(gt_t2, filename = png_t2, zoom = 2, expand = 20)
-  cat("Supplementary Table 2 PNG saved.\n")
+  cat("Supplementary Table 7 PNG saved.\n")
   
 } else {
   
   cat("  No interior turning points detected -- all four GAM curves are monotonic.\n")
-  cat("  (edf ~= 1 in Supplementary Table 1 confirms near-linearity.)\n")
+  cat("  (edf ~= 1 in Supplementary Table 6 confirms near-linearity.)\n")
   
   # Informative placeholder PNG for the appendix
   gt_t2_empty <- data.frame(
@@ -600,7 +599,7 @@ if (length(extrema_rows) > 0) {
   ) %>%
     gt() %>%
     tab_header(
-      title    = md("**Supplementary Table 2.** GAM Turning Points"),
+      title    = md("**Supplementary Table 7.** GAM Turning Points"),
       subtitle = md("*Interior extrema of the GAM-fitted curve*")
     ) %>%
     cols_label(Note = "") %>%
@@ -608,7 +607,8 @@ if (length(extrema_rows) > 0) {
               locations = cells_body()) %>%
     apply_gt_theme(tbl_width = pct(70))
   
-  png_t2 <- file.path(out_dir, "STable7_GAM_TurningPoints.png")
+  png_t2 <- file.path(PNG_DIR, "STable7_GAM_TurningPoints.png")
   gtsave(gt_t2_empty, filename = png_t2, zoom = 2, expand = 20)
-  cat("Supplementary Table 2 (no-extrema notice) PNG saved.\n")
+  cat("Supplementary Table 7 (no-extrema notice) PNG saved.\n")
 }
+

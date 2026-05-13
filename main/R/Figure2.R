@@ -1,5 +1,5 @@
 ###############################################################################
-# Figure 2: CTN Puzzle — Forest Plot
+# Figure 2: NC Puzzle — Forest Plot
 #
 # What it does:
 #   Computes Pearson correlations between nature connectedness (NC) and
@@ -8,7 +8,7 @@
 #   Psychological, Intention, Reported, and Observed (market data).
 #
 # Input:  data/MergedPanel.csv
-# Output: figures/raw/Figure2_CTN_Puzzle.png, figures/raw/Figure2_CTN_Puzzle.svg
+# Output: results/png/Figure2_CTN_Puzzle.png, results/png/Figure2_CTN_Puzzle.svg
 ###############################################################################
 
 rm(list = ls())
@@ -19,14 +19,18 @@ library(ggplot2)
 library(dplyr)
 library(tidyr)
 
-# ── 1. Data ──────────────────────────────────────────────────────────────────
+# ── 1. Control ───────────────────────────────────────────────────────────────
+# Switch between city-level aggregation methods: "_LPM" or "_BPN"
+METRIC_SUFFIX <- "_LPM" # revise to "_BPN" for BPN-based metrics (Supplementary Fig. 3)
 
-df <- read.csv("data/MergedPanelV5.csv") %>%
-  mutate(country = Country)
+# ── 2. Data ──────────────────────────────────────────────────────────────────
 
-df_buyers <- df %>% filter(totalOrders > 1)   # subset for observed behaviour
+df <- read.csv("data/MergedPanel.csv") %>%
+  filter(city != "Other")  # Exclude Other due to missing geo data 
 
-# ── 2. Colour palette & theme ───────────────────────────────────────────────
+df_buyers <- df 
+
+# ── 3. Colour palette & theme ───────────────────────────────────────────────
 
 col_psych  <- "#D95F02"   # orange
 col_say    <- "#1B9E77"   # teal
@@ -56,7 +60,7 @@ theme_pub <- function(base_size = 7) {
     )
 }
 
-# ── 3. Helper: one correlation row ──────────────────────────────────────────
+# ── 4. Helper: one correlation row ──────────────────────────────────────────
 
 cor_row <- function(data, x, y, label, category, domain = NA_character_) {
   tmp <- na.omit(data[, c(x, y)])
@@ -79,37 +83,39 @@ cor_row <- function(data, x, y, label, category, domain = NA_character_) {
              Sig      = sig)
 }
 
-# ── 4. Compute correlations by category ─────────────────────────────────────
+# ── 5. Compute correlations by category ─────────────────────────────────────
 
-# 4a. Psychological (NC → SEP / HHE)
+# 5a. Psychological (NC → SEP / HHE)
 rows_psych <- bind_rows(
   cor_row(df, "genGreenConnectness", "genGreenAttitude",     "Support Environ.\nProtection Action", "Psychological"),
   cor_row(df, "genGreenConnectness", "genGreenHumanLikert",  "Humans Are\nHarming Environ.", "Psychological")
 )
 
-# 4b. Intention (NC → stated-intention Likert)
+# 5b. Intention (NC → stated-intention Likert)
 rows_intention <- bind_rows(
-  cor_row(df, "genGreenConnectness", "stdGreenGroceryLikert",    "Grocery",     "Intention"),
-  cor_row(df, "genGreenConnectness", "stdGreenElectronicLikert", "Electronics", "Intention"),
-  cor_row(df, "genGreenConnectness", "stdGreenDeliveryLikert",   "Delivery",    "Intention"),
-  cor_row(df, "genGreenConnectness", "stdGreenWalkLikert",       "Transport",   "Intention")
+  cor_row(df, "genGreenConnectness", paste0("stdGreenGroceryLikert",    METRIC_SUFFIX), "Grocery",     "Intention"),
+  cor_row(df, "genGreenConnectness", paste0("stdGreenElectronicLikert", METRIC_SUFFIX), "Electronics", "Intention"),
+  cor_row(df, "genGreenConnectness", paste0("stdGreenDeliveryLikert",   METRIC_SUFFIX), "Delivery",    "Intention"),
+  cor_row(df, "genGreenConnectness", paste0("stdGreenWalkLikert",       METRIC_SUFFIX), "Transport",   "Intention")
 )
 
-# 4c. Reported (NC → self-reported behaviour)
+# 5c. Reported (NC → self-reported behaviour)
 rows_reported <- bind_rows(
-  cor_row(df, "genGreenConnectness", "reportMonthlyGreenGrocery",    "Grocery",     "Reported"),
-  cor_row(df, "genGreenConnectness", "reportMonthlyGreenElectronic", "Electronics", "Reported"),
-  cor_row(df, "genGreenConnectness", "reportMonthlyGreenDelivery",   "Delivery",    "Reported"),
-  cor_row(df, "genGreenConnectness", "reportMonthlyGreenWalk",       "Transport",   "Reported")
+  cor_row(df, "genGreenConnectness", paste0("reportMonthlyGreenGrocery",    METRIC_SUFFIX), "Grocery",     "Reported"),
+  cor_row(df, "genGreenConnectness", paste0("reportMonthlyGreenElectronic", METRIC_SUFFIX), "Electronics", "Reported"),
+  cor_row(df, "genGreenConnectness", paste0("reportMonthlyGreenDelivery",   METRIC_SUFFIX), "Delivery",    "Reported"),
+  cor_row(df, "genGreenConnectness", paste0("reportMonthlyGreenWalk",       METRIC_SUFFIX), "Transport",   "Reported")
+)
+colnames(df)
+# 5d. Observed (NC → market data, Grocery vs Electronics)
+actual_vars <- list(
+  "Spending Share"   = c(paste0("greenSpendingShareGrocery",   METRIC_SUFFIX), paste0("greenSpendingShareElectronic",   METRIC_SUFFIX)),
+  "Item Share"       = c(paste0("greenItemsShareGrocery",      METRIC_SUFFIX), paste0("greenItemsShareElectronic",      METRIC_SUFFIX)),
+  "Per-capita Spend" = c("greenMonthlySpendingGrocery",         "greenMonthlySpendingElectronic"),
+  "Order Share"      = c(paste0("greenOrdersShareGrocery",     METRIC_SUFFIX), paste0("greenOrdersShareElectronic",     METRIC_SUFFIX))
 )
 
-# 4d. Observed (NC → market data, Grocery vs Electronics)
-actual_vars <- list(
-  "Spending Share"   = c("greenSpendingShareGrocery",   "greenSpendingShareElectronic"),
-  "Item Share"       = c("greenItemsShareGrocery",      "greenItemsShareElectronic"),
-  "Per-capita Spend" = c("greenMonthlySpendingGrocery", "greenMonthlySpendingElectronic"),
-  "Order Share"      = c("greenOrdersShareGrocery",     "greenOrdersShareElectronic")
-)
+
 
 rows_observed <- lapply(names(actual_vars), function(metric) {
   v <- actual_vars[[metric]]
@@ -121,7 +127,7 @@ rows_observed <- lapply(names(actual_vars), function(metric) {
   )
 }) %>% bind_rows()
 
-# ── 5. Assemble plot data ───────────────────────────────────────────────────
+# ── 6. Assemble plot data ───────────────────────────────────────────────────
 
 plot_df <- bind_rows(rows_psych, rows_intention, rows_reported, rows_observed)
 
@@ -149,7 +155,7 @@ sep_y <- c(
   nrow(rows_observed) + nrow(rows_reported) + nrow(rows_intention) + 0.5
 )
 
-# ── 6. Legend key: unified colour + shape ────────────────────────────────────
+# ── 7. Legend key: unified colour + shape ────────────────────────────────────
 #    5 entries — Observed split into Grocery (circle) & Electronics (triangle)
 
 plot_df$Domain[is.na(plot_df$Domain)] <- "Other"
@@ -182,7 +188,7 @@ legend_shapes <- c(
   "Observed: Electronics" = 17    # triangle
 )
 
-# ── 7. Build plot ────────────────────────────────────────────────────────────
+# ── 8. Build plot ────────────────────────────────────────────────────────────
 
 fig <- ggplot(plot_df, aes(x = r, y = Label,
                            colour = LegendKey, shape = LegendKey)) +
@@ -211,18 +217,22 @@ fig <- ggplot(plot_df, aes(x = r, y = Label,
     legend.key.size    = unit(3.5, "mm"),
     legend.text        = element_text(size = 5.5)
   )
+colnames(df)
+# ── 9. Save ──────────────────────────────────────────────────────────────────
 
-# ── 8. Save ──────────────────────────────────────────────────────────────────
+PNG_DIR <- "results/png"
+SVG_DIR <- "results/svg"
+dir.create(PNG_DIR, showWarnings = FALSE, recursive = TRUE)
+dir.create(SVG_DIR, showWarnings = FALSE, recursive = TRUE)
 
-out_dir <- "figures/raw"
-dir.create(file.path(out_dir, "png"), showWarnings = FALSE, recursive = TRUE)
+fig_stem <- paste0("Figure2_NC_Puzzle", METRIC_SUFFIX)
 
-ggsave(file.path(out_dir, "Figure2_CTN_Puzzle.png"), fig,
+ggsave(file.path(PNG_DIR, paste0(fig_stem, ".png")), fig,
        width = 130, height = 120, units = "mm", dpi = 300)
 
 if (requireNamespace("svglite", quietly = TRUE)) {
-  dir.create(file.path(out_dir, "svg"), showWarnings = FALSE, recursive = TRUE)
-  ggsave(file.path(out_dir, "Figure2_CTN_Puzzle.svg"), fig,
+  ggsave(file.path(SVG_DIR, paste0(fig_stem, ".svg")), fig,
          width = 130, height = 120, units = "mm",
          device = svglite::svglite, bg = "white")
 }
+

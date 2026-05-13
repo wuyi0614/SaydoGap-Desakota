@@ -10,7 +10,7 @@
 #     for Grocery (left) and Electronics (right).
 #
 # Input:  data/IncludingLogData.csv
-# Output: figures/raw/Figure4_FE.png, figures/raw/Figure4_FE.svg
+# Output: results/png/Figure4_FE.png, results/png/Figure4_FE.svg
 #
 # Dependency: Run STable18_tranformation.R first (generates input CSV).
 ################################################################################
@@ -34,7 +34,8 @@ col_desakota <- "#E07B3A"   # Desakota        (warm orange)
 # ══════════════════════════════════════════════════════════════════════════════
 
 df <- read.csv("data/IncludingLogData.csv") %>%
-  mutate(country = Country)
+  mutate(country = Country)%>% 
+  filter(city != "Other")  # Exclude Other due to missing geo data
 
 df_gaps <- df %>%
   mutate(
@@ -44,7 +45,7 @@ df_gaps <- df %>%
     Gap2_Electronic_LPM  = reportMonthlyGreenElectronic_LPM - greenSpendingShareElectronic_LPM
   )
 
-controls     <- c("GDP_per", "onlineShoppingExperience", "isHighEdu", "socialMediaHrs","Main.religion", "country")
+controls     <- c("GDP_per", "onlineShoppingExperience", "isHighEdu", "socialMediaHrs", "country")
 med_var      <- "genGreenConnectness"
 spatial_vars <- c("Desakota_Index_CropOnly_log", "Green.Exposure.Index")
 
@@ -53,7 +54,7 @@ outcome_vars_all <- c(
   "Gap1_Electronic_LPM", "Gap2_Electronic_LPM",
   "greenSpendingShareGrocery_LPM", "greenSpendingShareElectronic_LPM"
 )
-meta_vars <- c("city", "country", "isCapitalCity","Main.religion")
+meta_vars <- c("city", "country", "isCapitalCity")
 
 all_needed <- unique(c(
   meta_vars, controls, spatial_vars, med_var,
@@ -556,15 +557,16 @@ fig4 <- (panel4a) /
 # SAVE
 # ══════════════════════════════════════════════════════════════════════════════
 
-out_dir <- "figures/raw"
-dir.create(file.path(out_dir, "png"), showWarnings = FALSE, recursive = TRUE)
+PNG_DIR <- "results/png"
+SVG_DIR <- "results/svg"
+dir.create(PNG_DIR, showWarnings = FALSE, recursive = TRUE)
+dir.create(SVG_DIR, showWarnings = FALSE, recursive = TRUE)
 
-ggsave(file.path(out_dir, "Figure4_FE.png"),
+ggsave(file.path(PNG_DIR, "Figure4_FE.png"),
        fig4, width = 220, height = 200, units = "mm", dpi = 300)
 
 if (requireNamespace("svglite", quietly = TRUE)) {
-  dir.create(file.path(out_dir, "svg"), showWarnings = FALSE, recursive = TRUE)
-  ggsave(file.path(out_dir, "Figure4_FE.svg"),
+  ggsave(file.path(SVG_DIR, "Figure4_FE.svg"),
          fig4, width = 220, height = 200, units = "mm",
          device = svglite::svglite, bg = "white")
 }
